@@ -1,0 +1,1 @@
+ALTER TABLE public.professionals ADD COLUMN birth_date date;
