@@ -248,6 +248,9 @@ export default function Relatorios() {
       const profPayments = periodPayments.filter(pay => pay.professional_id === p.id);
       const totalClinic = sumReceivedClinicCommission(profPayments as any);
       const totalProduced = profPayments.reduce((sum, pay) => sum + (pay.total_value || 0), 0);
+      const professionalReceived = profPayments
+        .filter((pay: any) => pay.is_paid === true && !["cancelado"].includes((pay.appointments?.status || "").toLowerCase()))
+        .reduce((sum: number, pay: any) => sum + Number(pay.professional_amount || 0), 0);
       const directEntries = floorTransactions
         .filter((t: any) => t.professional_id === p.id)
         .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
@@ -257,9 +260,9 @@ export default function Relatorios() {
       });
       return {
         name: p.name.split(" ").slice(0, 2).join(" "),
-        valor: totalClinic, consultas: profPayments.length, totalProduced, floorTotal, gapToFloor, shifts,
+        valor: totalClinic, professionalReceived, consultas: profPayments.length, totalProduced, floorTotal, gapToFloor, shifts,
       };
-    }).filter(p => p.valor > 0 || p.shifts > 0).sort((a, b) => b.valor - a.valor);
+    }).filter(p => p.valor > 0 || p.shifts > 0 || p.professionalReceived > 0).sort((a, b) => b.valor - a.valor);
     setClinicRevenueByProfessional(clinicRevenue);
 
     // Monthly revenue data
