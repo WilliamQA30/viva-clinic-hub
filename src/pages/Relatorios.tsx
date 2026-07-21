@@ -1050,6 +1050,7 @@ export default function Relatorios() {
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Consultas</th>
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Valor p/ atingir piso</th>
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Receita Clínica</th>
+                        <th className="text-right p-3 text-sm font-medium text-muted-foreground">Receita Profissional</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1066,6 +1067,7 @@ export default function Relatorios() {
                           )}
                         </td>
                         <td className="p-3 text-right font-semibold text-primary">{formatCurrencyBR(prof.valor)}</td>
+                        <td className="p-3 text-right font-semibold text-success">{formatCurrencyBR(prof.professionalReceived || 0)}</td>
                       </tr>
                     ))}
                     </tbody>
