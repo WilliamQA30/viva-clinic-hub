@@ -243,7 +243,10 @@ export default function Relatorios() {
 
     // Clinic revenue by professional with floor column
     // Piso = comissão da clínica EFETIVAMENTE RECEBIDA no mês (motor único).
-    const floorTransactions = transactions.filter((t: any) => t.professional_id);
+    // Apenas entradas SEM appointment_id contam como lançamento manual pro piso —
+    // entradas vinculadas a consulta já são contabilizadas via professional_payments
+    // (totalClinic/clinicRev), então incluí-las aqui duplicaria o valor.
+    const floorTransactions = transactions.filter((t: any) => t.professional_id && !t.appointment_id);
     const clinicRevenue = professionals.map((p) => {
       const profPayments = periodPayments.filter(pay => pay.professional_id === p.id);
       const totalClinic = sumReceivedClinicCommission(profPayments as any);
