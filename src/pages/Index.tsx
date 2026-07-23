@@ -311,15 +311,15 @@ const Index = () => {
             isLoading={isLoading}
           />
           <StatCard
-            title="Consultas Confirmadas"
+            title="Consultas Realizadas"
             value={stats?.confirmedToday.toString() || "0"}
-            change={stats ? `${stats.conversionRate}% confirmadas do total` : "Carregando..."}
+            change={stats ? `${stats.conversionRate}% realizadas do total` : "Carregando..."}
             changeType="neutral"
             icon={Calendar}
             iconColor="primary"
             isLoading={isLoading}
             breakdown={stats ? [
-              { label: "Confirmadas", value: stats.confirmedToday, tone: "success" },
+              { label: "Realizadas", value: stats.confirmedToday, tone: "success" },
               { label: "Pendentes", value: stats.pendingToday, tone: "warning" },
               { label: "Canceladas", value: stats.cancelledToday, tone: "destructive" },
             ] : undefined}
