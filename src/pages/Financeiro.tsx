@@ -46,6 +46,7 @@ import { ClientReceivablesTab } from "@/components/financial/ClientReceivablesTa
 import { exportToPDF, exportToExcel, formatDateBR, formatCurrencyBR } from "@/lib/export-utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { countRealized } from "@/lib/business-rules";
 
 interface Transaction {
   id: string;
@@ -195,7 +196,7 @@ export default function Financeiro() {
       (a: any) => a.status !== "cliente_faltou" || a.no_show_charged === true
     );
 
-    const confirmed = appts.length;
+    const confirmed = countRealized(appts);
     const free = appts.filter((a) => !a.consultation_value || Number(a.consultation_value) === 0).length;
     const paidAppts = appts.filter(
       (a) => a.payment_status === "pago" && Number(a.consultation_value || 0) > 0

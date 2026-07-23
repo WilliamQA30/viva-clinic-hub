@@ -424,11 +424,8 @@ export default function Relatorios() {
         // === Operação (período selecionado) ===
         // Total: consultas válidas no período (não canceladas / sem falta)
         const totalConsultas = appts.length;
-        // Confirmadas: status confirmado/atendido/concluído
-        const consultasConfirmadas = appts.filter((a: any) => {
-          const s = (a.status || "").toLowerCase();
-          return s === "confirmado" || s === "atendido" || s === "concluido";
-        }).length;
+        // Confirmadas: apenas consultas REALIZADAS (atendido/concluido) — "confirmado" sozinho não conta
+        const consultasConfirmadas = countRealized(appts);
         // Pagas: payment_status = pago E valor > 0 (gratuitas não contam)
         const consultasPagasRemuneradas = appts.filter(
           (a: any) => (a.payment_status || "").toLowerCase() === "pago" && Number(a.consultation_value || 0) > 0

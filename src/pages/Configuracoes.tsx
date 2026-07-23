@@ -70,7 +70,9 @@ export default function Configuracoes() {
 
   const handleSaveFloor = async () => {
     setIsLoading(true);
-    const { error } = await supabase.from("clinic_settings").update({ value: floorValue }).eq("key", "floor_value_per_shift");
+    const { error } = await supabase
+      .from("clinic_settings")
+      .upsert({ key: "floor_value_per_shift", value: floorValue }, { onConflict: "key" });
     if (error) {
       toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
     } else {
