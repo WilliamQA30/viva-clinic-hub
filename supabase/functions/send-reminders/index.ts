@@ -14,11 +14,11 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const evolutionApiUrl = Deno.env.get("EVOLUTION_API_URL");
-    const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY");
+    const uazapiUrl = Deno.env.get("UAZAPI_URL");
+    const uazapiToken = Deno.env.get("UAZAPI_TOKEN");
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
-      throw new Error("Evolution API credentials not configured");
+    if (!uazapiUrl || !uazapiToken) {
+      throw new Error("uazapi credentials not configured");
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
