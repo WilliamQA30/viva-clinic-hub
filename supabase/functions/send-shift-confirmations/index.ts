@@ -193,13 +193,12 @@ serve(async (req) => {
         formattedPhone = "55" + formattedPhone;
       }
 
-      const instanceName = "EspacoEssentia";
       try {
-        const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
+        const response = await fetch(`${uazapiUrl}/send/text`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "apikey": evolutionApiKey,
+            "token": uazapiToken,
           },
           body: JSON.stringify({ number: formattedPhone, text: message }),
         });
