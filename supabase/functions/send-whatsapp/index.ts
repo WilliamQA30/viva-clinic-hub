@@ -19,19 +19,19 @@ serve(async (req) => {
   }
 
   try {
-    let evolutionApiUrl = Deno.env.get("EVOLUTION_API_URL");
-    const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY");
+    let uazapiUrl = Deno.env.get("UAZAPI_URL");
+    const uazapiToken = Deno.env.get("UAZAPI_TOKEN");
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
-      console.log("Evolution API credentials not configured - skipping WhatsApp");
+    if (!uazapiUrl || !uazapiToken) {
+      console.log("uazapi credentials not configured - skipping WhatsApp");
       return new Response(
-        JSON.stringify({ success: false, error: "Evolution API not configured", optional: true }),
+        JSON.stringify({ success: false, error: "uazapi not configured", optional: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // Remove trailing slash from URL if present
-    evolutionApiUrl = evolutionApiUrl.replace(/\/+$/, "");
+    uazapiUrl = uazapiUrl.replace(/\/+$/, "");
 
     const { phone, message, appointmentId, patientName } = await req.json() as SendWhatsAppRequest;
 
@@ -58,41 +58,39 @@ serve(async (req) => {
       formattedPhone = `55${digitsOnlyPhone}`;
     }
 
-    // Send message via Evolution API
-    // Instance name should match what's configured in Evolution API
-    const instanceName = "EspacoEssentia";
-    const apiEndpoint = `${evolutionApiUrl}/message/sendText/${instanceName}`;
-    
+    // Send message via uazapi
+    const apiEndpoint = `${uazapiUrl}/send/text`;
+
     console.log("Sending WhatsApp to:", formattedPhone, "via:", apiEndpoint);
-    
+
     let response;
     let result;
-    
+
     try {
       response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "apikey": evolutionApiKey,
+          "token": uazapiToken,
         },
         body: JSON.stringify({
           number: formattedPhone,
           text: message,
         }),
       });
-      
+
       result = await response.json();
     } catch (fetchError: any) {
-      console.error("Fetch error to Evolution API:", fetchError);
+      console.error("Fetch error to uazapi:", fetchError);
       // Return success anyway - WhatsApp is optional, don't break the flow
       return new Response(
-        JSON.stringify({ success: false, error: "Evolution API unreachable", optional: true }),
+        JSON.stringify({ success: false, error: "uazapi unreachable", optional: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     if (!response.ok) {
-      console.error("Evolution API error:", result);
+      console.error("uazapi error:", result);
       // Return without throwing - WhatsApp is optional
       return new Response(
         JSON.stringify({ success: false, error: result.message || "WhatsApp API error", optional: true }),

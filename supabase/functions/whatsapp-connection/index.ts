@@ -11,123 +11,115 @@ serve(async (req) => {
   }
 
   try {
-    let evolutionApiUrl = Deno.env.get("EVOLUTION_API_URL");
-    const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY");
+    let uazapiUrl = Deno.env.get("UAZAPI_URL");
+    const uazapiToken = Deno.env.get("UAZAPI_TOKEN");
+    const uazapiAdminToken = Deno.env.get("UAZAPI_ADMIN_TOKEN");
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
+    if (!uazapiUrl || !uazapiToken) {
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "Evolution API not configured",
-          configured: false 
+        JSON.stringify({
+          success: false,
+          error: "uazapi not configured",
+          configured: false,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Remove trailing slash from URL if present
-    evolutionApiUrl = evolutionApiUrl.replace(/\/+$/, "");
+    uazapiUrl = uazapiUrl.replace(/\/+$/, "");
 
     const { action } = await req.json();
     const instanceName = "EspacoEssentia";
 
+    const authHeaders = {
+      "Content-Type": "application/json",
+      token: uazapiToken,
+    } as Record<string, string>;
+
     // Get connection status
     if (action === "status") {
       try {
-        const response = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
+        const response = await fetch(`${uazapiUrl}/instance/status`, {
           method: "GET",
-          headers: {
-            "apikey": evolutionApiKey,
-          },
+          headers: authHeaders,
         });
-
-        if (!response.ok) {
-          // Instance might not exist
-          if (response.status === 404) {
-            return new Response(
-              JSON.stringify({ 
-                success: true, 
-                configured: true,
-                connected: false,
-                status: "not_found",
-                message: "Instância não encontrada. Crie uma nova instância."
-              }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-          throw new Error("Failed to get status");
-        }
 
         const result = await response.json();
         console.log("Connection state result:", result);
 
-        const isConnected = result?.instance?.state === "open" || result?.state === "open";
-        
+        if (!response.ok) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              configured: true,
+              connected: false,
+              status: "error",
+              error: result?.message || "Failed to get status",
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        const state =
+          result?.instance?.status || result?.status || (result?.connected ? "connected" : "disconnected");
+        const isConnected = state === "connected" || result?.connected === true;
+
         return new Response(
-          JSON.stringify({ 
-            success: true, 
+          JSON.stringify({
+            success: true,
             configured: true,
             connected: isConnected,
-            status: result?.instance?.state || result?.state || "unknown",
-            instanceName: instanceName
+            status: state,
+            instanceName,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } catch (error: any) {
         console.error("Error getting status:", error);
         return new Response(
-          JSON.stringify({ 
-            success: false, 
+          JSON.stringify({
+            success: false,
             configured: true,
             connected: false,
             status: "error",
-            error: error.message
+            error: error.message,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
-    // Create instance
+    // Create instance (requires admin token)
     if (action === "create") {
+      if (!uazapiAdminToken) {
+        return new Response(
+          JSON.stringify({ success: false, error: "UAZAPI_ADMIN_TOKEN não configurado" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       try {
-        const response = await fetch(`${evolutionApiUrl}/instance/create`, {
+        const response = await fetch(`${uazapiUrl}/instance/init`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "apikey": evolutionApiKey,
+            admintoken: uazapiAdminToken,
           },
-          body: JSON.stringify({
-            instanceName: instanceName,
-            qrcode: true,
-            integration: "WHATSAPP-BAILEYS"
-          }),
+          body: JSON.stringify({ name: instanceName, systemName: instanceName }),
         });
 
         const result = await response.json();
         console.log("Create instance result:", result);
 
         if (!response.ok) {
-          // Check if instance already exists
-          if (result.message?.includes("already") || result.error?.includes("already")) {
-            return new Response(
-              JSON.stringify({ 
-                success: true, 
-                message: "Instância já existe",
-                instanceName: instanceName
-              }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-          throw new Error(result.message || "Failed to create instance");
+          throw new Error(result.message || result.error || "Failed to create instance");
         }
 
         return new Response(
-          JSON.stringify({ 
-            success: true, 
+          JSON.stringify({
+            success: true,
             message: "Instância criada com sucesso",
-            instanceName: instanceName,
-            qrcode: result.qrcode
+            instanceName,
+            token: result.token || result?.instance?.token,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -143,11 +135,10 @@ serve(async (req) => {
     // Get QR Code
     if (action === "qrcode") {
       try {
-        const response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
-          method: "GET",
-          headers: {
-            "apikey": evolutionApiKey,
-          },
+        const response = await fetch(`${uazapiUrl}/instance/connect`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({}),
         });
 
         const result = await response.json();
@@ -157,11 +148,18 @@ serve(async (req) => {
           throw new Error(result.message || "Failed to get QR code");
         }
 
+        const qr =
+          result?.instance?.qrcode ||
+          result?.qrcode ||
+          result?.base64 ||
+          result?.qrcode?.base64;
+        const pairingCode = result?.instance?.paircode || result?.paircode || result?.pairingCode;
+
         return new Response(
-          JSON.stringify({ 
-            success: true, 
-            qrcode: result.base64 || result.qrcode?.base64 || result.code,
-            pairingCode: result.pairingCode
+          JSON.stringify({
+            success: true,
+            qrcode: qr,
+            pairingCode,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -177,20 +175,19 @@ serve(async (req) => {
     // Disconnect/Logout
     if (action === "disconnect") {
       try {
-        const response = await fetch(`${evolutionApiUrl}/instance/logout/${instanceName}`, {
-          method: "DELETE",
-          headers: {
-            "apikey": evolutionApiKey,
-          },
+        const response = await fetch(`${uazapiUrl}/instance/disconnect`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({}),
         });
 
-        const result = await response.json();
+        const result = await response.json().catch(() => ({}));
         console.log("Disconnect result:", result);
 
         return new Response(
-          JSON.stringify({ 
-            success: true, 
-            message: "WhatsApp desconectado com sucesso"
+          JSON.stringify({
+            success: response.ok,
+            message: response.ok ? "WhatsApp desconectado com sucesso" : (result?.message || "Falha ao desconectar"),
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -207,7 +204,6 @@ serve(async (req) => {
       JSON.stringify({ success: false, error: "Invalid action" }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-
   } catch (error: any) {
     console.error("Error in whatsapp-connection:", error);
     return new Response(
