@@ -108,12 +108,12 @@ serve(async (req) => {
       }
 
       try {
-        // Send via Evolution API
-        const response = await fetch(`${evolutionApiUrl.replace(/\/+$/, "")}/message/sendText/EspacoEssentia`, {
+        // Send via uazapi
+        const response = await fetch(`${uazapiUrl.replace(/\/+$/, "")}/send/text`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "apikey": evolutionApiKey,
+            "token": uazapiToken,
           },
           body: JSON.stringify({
             number: formattedPhone,
