@@ -208,7 +208,7 @@ export function WhatsAppConnectionPanel() {
       {!status?.configured && (
         <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30">
           <p className="text-sm text-amber-600 dark:text-amber-400">
-            <strong>Configuração necessária:</strong> As credenciais da Evolution API (EVOLUTION_API_URL e EVOLUTION_API_KEY) precisam ser configuradas para usar o WhatsApp.
+            <strong>Configuração necessária:</strong> As credenciais da uazapi (UAZAPI_URL e UAZAPI_TOKEN) precisam ser configuradas para usar o WhatsApp.
           </p>
         </div>
       )}
