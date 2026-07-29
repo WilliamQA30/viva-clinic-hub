@@ -23,17 +23,17 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    let evolutionApiUrl = Deno.env.get("EVOLUTION_API_URL");
-    const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY");
+    let uazapiUrl = Deno.env.get("UAZAPI_URL");
+    const uazapiToken = Deno.env.get("UAZAPI_TOKEN");
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
+    if (!uazapiUrl || !uazapiToken) {
       return new Response(
-        JSON.stringify({ success: false, error: "Evolution API not configured" }),
+        JSON.stringify({ success: false, error: "uazapi not configured" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    evolutionApiUrl = evolutionApiUrl.replace(/\/+$/, "");
+    uazapiUrl = uazapiUrl.replace(/\/+$/, "");
 
     // Get current time in BRT (UTC-3)
     const now = new Date();
