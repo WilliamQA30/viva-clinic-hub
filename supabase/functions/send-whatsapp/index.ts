@@ -58,41 +58,39 @@ serve(async (req) => {
       formattedPhone = `55${digitsOnlyPhone}`;
     }
 
-    // Send message via Evolution API
-    // Instance name should match what's configured in Evolution API
-    const instanceName = "EspacoEssentia";
-    const apiEndpoint = `${evolutionApiUrl}/message/sendText/${instanceName}`;
-    
+    // Send message via uazapi
+    const apiEndpoint = `${uazapiUrl}/send/text`;
+
     console.log("Sending WhatsApp to:", formattedPhone, "via:", apiEndpoint);
-    
+
     let response;
     let result;
-    
+
     try {
       response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "apikey": evolutionApiKey,
+          "token": uazapiToken,
         },
         body: JSON.stringify({
           number: formattedPhone,
           text: message,
         }),
       });
-      
+
       result = await response.json();
     } catch (fetchError: any) {
-      console.error("Fetch error to Evolution API:", fetchError);
+      console.error("Fetch error to uazapi:", fetchError);
       // Return success anyway - WhatsApp is optional, don't break the flow
       return new Response(
-        JSON.stringify({ success: false, error: "Evolution API unreachable", optional: true }),
+        JSON.stringify({ success: false, error: "uazapi unreachable", optional: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     if (!response.ok) {
-      console.error("Evolution API error:", result);
+      console.error("uazapi error:", result);
       // Return without throwing - WhatsApp is optional
       return new Response(
         JSON.stringify({ success: false, error: result.message || "WhatsApp API error", optional: true }),
