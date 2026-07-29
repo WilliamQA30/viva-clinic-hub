@@ -19,19 +19,19 @@ serve(async (req) => {
   }
 
   try {
-    let evolutionApiUrl = Deno.env.get("EVOLUTION_API_URL");
-    const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY");
+    let uazapiUrl = Deno.env.get("UAZAPI_URL");
+    const uazapiToken = Deno.env.get("UAZAPI_TOKEN");
 
-    if (!evolutionApiUrl || !evolutionApiKey) {
-      console.log("Evolution API credentials not configured - skipping WhatsApp");
+    if (!uazapiUrl || !uazapiToken) {
+      console.log("uazapi credentials not configured - skipping WhatsApp");
       return new Response(
-        JSON.stringify({ success: false, error: "Evolution API not configured", optional: true }),
+        JSON.stringify({ success: false, error: "uazapi not configured", optional: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // Remove trailing slash from URL if present
-    evolutionApiUrl = evolutionApiUrl.replace(/\/+$/, "");
+    uazapiUrl = uazapiUrl.replace(/\/+$/, "");
 
     const { phone, message, appointmentId, patientName } = await req.json() as SendWhatsAppRequest;
 
