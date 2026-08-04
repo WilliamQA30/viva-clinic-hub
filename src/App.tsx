@@ -19,6 +19,7 @@ import Assistente from "./pages/Assistente";
 import Aprovacoes from "./pages/Aprovacoes";
 import ContasPagar from "./pages/ContasPagar";
 import CRM from "./pages/CRM";
+import OAuthConsent from "./pages/OAuthConsent";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
           <AuthProvider>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/.lovable/oauth/consent" element={<OAuthConsent />} />
               <Route
                 path="/"
                 element={
