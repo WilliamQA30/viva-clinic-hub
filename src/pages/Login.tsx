@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, UserPlus } from "lucide-react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import essentiaLogo from "@/assets/essentia-logo.png";
 
@@ -15,6 +15,11 @@ export default function Login() {
   const [fullName, setFullName] = useState("");
   
   const { signIn, signUp, user, loading } = useAuth();
+  const [searchParams] = useSearchParams();
+
+  // Preserva o destino original (ex.: tela de consentimento OAuth) após o login.
+  const rawNext = searchParams.get("next");
+  const nextPath = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
 
   if (loading) {
     return (
@@ -25,7 +30,7 @@ export default function Login() {
   }
 
   if (user) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={nextPath} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
