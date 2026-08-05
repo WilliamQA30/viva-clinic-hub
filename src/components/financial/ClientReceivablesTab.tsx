@@ -17,6 +17,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -77,6 +87,7 @@ export function ClientReceivablesTab() {
   const [paymentReceiver, setPaymentReceiver] = useState<"clinic" | "professional">("professional");
   const [paymentDate, setPaymentDate] = useState<Date | undefined>(undefined);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showReceiverConfirm, setShowReceiverConfirm] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
