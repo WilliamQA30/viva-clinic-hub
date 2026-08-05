@@ -948,6 +948,42 @@ export function ProfessionalPaymentsTab() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Corrigir quem recebeu */}
+      <AlertDialog
+        open={!!fixingPayment}
+        onOpenChange={(o) => !o && setFixingPayment(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Corrigir quem recebeu</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este pagamento está marcado como{" "}
+              <strong>
+                {fixingPayment?.payment_destination === "clinic" ? "Clínica" : "Profissional"}
+              </strong>
+              . Corrigir para{" "}
+              <strong>
+                {fixingPayment?.payment_destination === "clinic" ? "Profissional" : "Clínica"}
+              </strong>
+              ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmFixDestination();
+              }}
+              disabled={isProcessing}
+            >
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+
   );
 }
