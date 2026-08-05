@@ -405,6 +405,56 @@ export function ProfessionalPaymentsTab() {
     }
   };
 
+  const handleConfirmFixDestination = async () => {
+    if (!fixingPayment || fixingPayment.is_paid) return;
+    const oldDest = fixingPayment.payment_destination === "clinic" ? "clinic" : "professional";
+    const newDest = oldDest === "clinic" ? "professional" : "clinic";
+
+    setIsProcessing(true);
+    try {
+      const { error: updError } = await supabase
+        .from("professional_payments")
+        .update({ payment_destination: newDest })
+        .eq("id", fixingPayment.id);
+      if (updError) throw updError;
+
+      if (oldDest === "clinic" && newDest === "professional") {
+        const { error: delError } = await supabase
+          .from("transactions")
+          .delete()
+          .eq("type", "entrada")
+          .eq("appointment_id", fixingPayment.appointment_id)
+          .eq("amount", fixingPayment.total_value);
+        if (delError) throw delError;
+      } else if (oldDest === "professional" && newDest === "clinic") {
+        const now = new Date();
+        const { error: insError } = await supabase.from("transactions").insert({
+          type: "entrada",
+          amount: fixingPayment.total_value,
+          payment_method: fixingPayment.payment_method,
+          appointment_id: fixingPayment.appointment_id,
+          professional_id: fixingPayment.professional_id,
+          transaction_date: now.toISOString().split("T")[0],
+          transaction_time: now.toTimeString().slice(0, 5),
+          description: "Consulta - correção de registro",
+        });
+        if (insError) throw insError;
+      }
+
+      toast({
+        title: "Correção aplicada",
+        description: `Pagamento agora consta como recebido por: ${newDest === "clinic" ? "Clínica" : "Profissional"}.`,
+      });
+      setFixingPayment(null);
+      await Promise.all([fetchPayments(), fetchProfessionals()]);
+    } catch (error: any) {
+      toast({ title: "Erro ao corrigir", description: error.message, variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
   const handleEditCurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "");
     const numValue = parseInt(value) / 100;
