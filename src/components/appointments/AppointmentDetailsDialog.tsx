@@ -125,7 +125,8 @@ export function AppointmentDetailsDialog({
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showNoShowDialog, setShowNoShowDialog] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
-  const [paymentDestination, setPaymentDestination] = useState<string>("clinic");
+  const [paymentDestination, setPaymentDestination] = useState<string>("professional");
+  const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
   const [registeredReceiver, setRegisteredReceiver] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -188,7 +189,7 @@ export function AppointmentDetailsDialog({
 
       // Create professional payment record
       const payValue = consultationValue;
-      const clinicPercentage = appointment.clinic_percentage || 30;
+      const clinicPercentage = appointment.clinic_percentage ?? 25;
       const clinicAmount = (payValue * clinicPercentage) / 100;
       const professionalAmount = payValue - clinicAmount;
 
@@ -788,7 +789,16 @@ export function AppointmentDetailsDialog({
                   <Button
                     size="sm"
                     className="gradient-primary border-0"
-                    onClick={handlePayment}
+                    onClick={() => {
+                      if (!paymentMethod) {
+                        toast({
+                          title: "Selecione a forma de pagamento",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+                      setShowPaymentConfirm(true);
+                    }}
                     disabled={isLoading}
                   >
                     {isLoading ? (
@@ -1035,6 +1045,36 @@ export function AppointmentDetailsDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Confirmação de quem recebeu o pagamento */}
+      <AlertDialog open={showPaymentConfirm} onOpenChange={setShowPaymentConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar recebimento</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirma que quem recebeu o pagamento foi:{" "}
+              <strong>
+                {paymentDestination === "clinic" ? "Clínica" : "Profissional"}
+              </strong>
+              ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setShowPaymentConfirm(false);
+                handlePayment();
+              }}
+              disabled={isLoading}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+
   );
 }

@@ -17,6 +17,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -77,6 +87,7 @@ export function ClientReceivablesTab() {
   const [paymentReceiver, setPaymentReceiver] = useState<"clinic" | "professional">("professional");
   const [paymentDate, setPaymentDate] = useState<Date | undefined>(undefined);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showReceiverConfirm, setShowReceiverConfirm] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -597,7 +608,13 @@ export function ClientReceivablesTab() {
                 </Button>
                 <Button
                   className="flex-1 gradient-primary border-0"
-                  onClick={handleConfirmPayment}
+                  onClick={() => {
+                    if (!paymentMethod) {
+                      toast({ title: "Selecione a forma de pagamento", variant: "destructive" });
+                      return;
+                    }
+                    setShowReceiverConfirm(true);
+                  }}
                   disabled={isProcessing}
                 >
                   {isProcessing ? (
@@ -611,6 +628,33 @@ export function ClientReceivablesTab() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Confirmação de quem recebeu o pagamento */}
+      <AlertDialog open={showReceiverConfirm} onOpenChange={setShowReceiverConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar recebimento</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirma que quem recebeu o pagamento foi:{" "}
+              <strong>{paymentReceiver === "clinic" ? "Clínica" : "Profissional"}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setShowReceiverConfirm(false);
+                handleConfirmPayment();
+              }}
+              disabled={isProcessing}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+
   );
 }

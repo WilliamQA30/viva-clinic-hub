@@ -31,6 +31,7 @@ import {
   Building2,
   Pencil,
   CalendarIcon,
+  ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDateBR, formatCurrencyBR } from "@/lib/export-utils";
@@ -38,6 +39,16 @@ import { formatCurrency } from "@/lib/validations";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -95,6 +106,7 @@ export function ProfessionalPaymentsTab() {
   const [editingPayment, setEditingPayment] = useState<ProfessionalPayment | null>(null);
   const [editTotalValue, setEditTotalValue] = useState("");
   const [editClinicPercentage, setEditClinicPercentage] = useState("25");
+  const [fixingPayment, setFixingPayment] = useState<ProfessionalPayment | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -393,6 +405,56 @@ export function ProfessionalPaymentsTab() {
     }
   };
 
+  const handleConfirmFixDestination = async () => {
+    if (!fixingPayment || fixingPayment.is_paid) return;
+    const oldDest = fixingPayment.payment_destination === "clinic" ? "clinic" : "professional";
+    const newDest = oldDest === "clinic" ? "professional" : "clinic";
+
+    setIsProcessing(true);
+    try {
+      const { error: updError } = await supabase
+        .from("professional_payments")
+        .update({ payment_destination: newDest })
+        .eq("id", fixingPayment.id);
+      if (updError) throw updError;
+
+      if (oldDest === "clinic" && newDest === "professional") {
+        const { error: delError } = await supabase
+          .from("transactions")
+          .delete()
+          .eq("type", "entrada")
+          .eq("appointment_id", fixingPayment.appointment_id)
+          .eq("amount", fixingPayment.total_value);
+        if (delError) throw delError;
+      } else if (oldDest === "professional" && newDest === "clinic") {
+        const now = new Date();
+        const { error: insError } = await supabase.from("transactions").insert({
+          type: "entrada",
+          amount: fixingPayment.total_value,
+          payment_method: fixingPayment.payment_method,
+          appointment_id: fixingPayment.appointment_id,
+          professional_id: fixingPayment.professional_id,
+          transaction_date: now.toISOString().split("T")[0],
+          transaction_time: now.toTimeString().slice(0, 5),
+          description: "Consulta - correção de registro",
+        });
+        if (insError) throw insError;
+      }
+
+      toast({
+        title: "Correção aplicada",
+        description: `Pagamento agora consta como recebido por: ${newDest === "clinic" ? "Clínica" : "Profissional"}.`,
+      });
+      setFixingPayment(null);
+      await Promise.all([fetchPayments(), fetchProfessionals()]);
+    } catch (error: any) {
+      toast({ title: "Erro ao corrigir", description: error.message, variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
   const handleEditCurrencyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "");
     const numValue = parseInt(value) / 100;
@@ -662,16 +724,36 @@ export function ProfessionalPaymentsTab() {
                       </Badge>
                     </td>
                     <td className="p-4 text-center">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleEditPayment(payment)}
-                        title="Editar valores"
-                      >
-                        <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
-                      </Button>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handleEditPayment(payment)}
+                          title="Editar valores"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                        </Button>
+                        <span
+                          title={
+                            payment.is_paid
+                              ? "Já quitado — peça correção manual"
+                              : "Corrigir quem recebeu"
+                          }
+                        >
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0"
+                            disabled={payment.is_paid}
+                            onClick={() => setFixingPayment(payment)}
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
+                          </Button>
+                        </span>
+                      </div>
                     </td>
+
                   </tr>
                 ))}
               </tbody>
@@ -866,6 +948,42 @@ export function ProfessionalPaymentsTab() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Corrigir quem recebeu */}
+      <AlertDialog
+        open={!!fixingPayment}
+        onOpenChange={(o) => !o && setFixingPayment(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Corrigir quem recebeu</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este pagamento está marcado como{" "}
+              <strong>
+                {fixingPayment?.payment_destination === "clinic" ? "Clínica" : "Profissional"}
+              </strong>
+              . Corrigir para{" "}
+              <strong>
+                {fixingPayment?.payment_destination === "clinic" ? "Profissional" : "Clínica"}
+              </strong>
+              ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmFixDestination();
+              }}
+              disabled={isProcessing}
+            >
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+
   );
 }
