@@ -106,6 +106,7 @@ export function ProfessionalPaymentsTab() {
   const [editingPayment, setEditingPayment] = useState<ProfessionalPayment | null>(null);
   const [editTotalValue, setEditTotalValue] = useState("");
   const [editClinicPercentage, setEditClinicPercentage] = useState("25");
+  const [fixingPayment, setFixingPayment] = useState<ProfessionalPayment | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
