@@ -608,7 +608,13 @@ export function ClientReceivablesTab() {
                 </Button>
                 <Button
                   className="flex-1 gradient-primary border-0"
-                  onClick={handleConfirmPayment}
+                  onClick={() => {
+                    if (!paymentMethod) {
+                      toast({ title: "Selecione a forma de pagamento", variant: "destructive" });
+                      return;
+                    }
+                    setShowReceiverConfirm(true);
+                  }}
                   disabled={isProcessing}
                 >
                   {isProcessing ? (
@@ -622,6 +628,33 @@ export function ClientReceivablesTab() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Confirmação de quem recebeu o pagamento */}
+      <AlertDialog open={showReceiverConfirm} onOpenChange={setShowReceiverConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar recebimento</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirma que quem recebeu o pagamento foi:{" "}
+              <strong>{paymentReceiver === "clinic" ? "Clínica" : "Profissional"}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isProcessing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setShowReceiverConfirm(false);
+                handleConfirmPayment();
+              }}
+              disabled={isProcessing}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+
   );
 }
