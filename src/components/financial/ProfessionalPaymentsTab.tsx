@@ -724,16 +724,36 @@ export function ProfessionalPaymentsTab() {
                       </Badge>
                     </td>
                     <td className="p-4 text-center">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0"
-                        onClick={() => handleEditPayment(payment)}
-                        title="Editar valores"
-                      >
-                        <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
-                      </Button>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handleEditPayment(payment)}
+                          title="Editar valores"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                        </Button>
+                        <span
+                          title={
+                            payment.is_paid
+                              ? "Já quitado — peça correção manual"
+                              : "Corrigir quem recebeu"
+                          }
+                        >
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0"
+                            disabled={payment.is_paid}
+                            onClick={() => setFixingPayment(payment)}
+                          >
+                            <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" />
+                          </Button>
+                        </span>
+                      </div>
                     </td>
+
                   </tr>
                 ))}
               </tbody>
