@@ -1045,6 +1045,36 @@ export function AppointmentDetailsDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Confirmação de quem recebeu o pagamento */}
+      <AlertDialog open={showPaymentConfirm} onOpenChange={setShowPaymentConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar recebimento</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirma que quem recebeu o pagamento foi:{" "}
+              <strong>
+                {paymentDestination === "clinic" ? "Clínica" : "Profissional"}
+              </strong>
+              ?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                setShowPaymentConfirm(false);
+                handlePayment();
+              }}
+              disabled={isLoading}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+
   );
 }
