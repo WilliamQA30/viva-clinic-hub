@@ -945,7 +945,194 @@ export function ProfessionalPaymentsTab() {
         )}
       </div>
 
+      {/* Quitação individual de 1 débito (Receber de Profissionais) */}
+      <Dialog open={!!settlingPayment} onOpenChange={(o) => !o && setSettlingPayment(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-primary-foreground" />
+              </div>
+              Quitar Débito
+            </DialogTitle>
+          </DialogHeader>
+
+          {settlingPayment && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-muted/30">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Profissional</span>
+                  <span className="font-medium">{settlingPayment.professionals?.name || "-"}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-muted-foreground">Paciente</span>
+                  <span className="font-medium">{settlingPayment.appointments?.patients?.name || "-"}</span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-3">Valor a receber</p>
+                <p className="text-2xl font-bold text-primary">{formatCurrencyBR(settleTarget)}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Data do Recebimento</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !settleDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {settleDate ? format(settleDate, "dd/MM/yyyy", { locale: ptBR }) : "Hoje (padrão)"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={settleDate}
+                      onSelect={setSettleDate}
+                      disabled={(date) => date > new Date()}
+                      initialFocus
+                      locale={ptBR}
+                      className={cn("p-3 pointer-events-auto")}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border/30 p-3">
+                <Label htmlFor="split-toggle" className="text-sm font-medium">
+                  Pagamento dividido?
+                </Label>
+                <Switch
+                  id="split-toggle"
+                  checked={settleIsSplit}
+                  onCheckedChange={(checked) => {
+                    setSettleIsSplit(checked);
+                    if (checked) {
+                      setSettleSplits([{ method: "", amount: "" }]);
+                    } else {
+                      setSettleMethod("");
+                    }
+                  }}
+                />
+              </div>
+
+              {!settleIsSplit ? (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Forma de Pagamento</Label>
+                  <Select value={settleMethod} onValueChange={setSettleMethod}>
+                    <SelectTrigger>
+                      <CreditCard className="w-4 h-4 mr-2" />
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Formas de Pagamento</Label>
+                  {settleSplits.map((split, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Select
+                        value={split.method}
+                        onValueChange={(v) =>
+                          setSettleSplits((prev) =>
+                            prev.map((s, i) => (i === index ? { ...s, method: v } : s))
+                          )
+                        }
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Forma" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        className="w-32"
+                        inputMode="decimal"
+                        placeholder="R$ 0,00"
+                        value={split.amount}
+                        onChange={(e) =>
+                          setSettleSplits((prev) =>
+                            prev.map((s, i) => (i === index ? { ...s, amount: e.target.value } : s))
+                          )
+                        }
+                      />
+                      {settleSplits.length > 1 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-9 w-9 p-0"
+                          onClick={() =>
+                            setSettleSplits((prev) => prev.filter((_, i) => i !== index))
+                          }
+                          title="Remover forma"
+                        >
+                          <Trash2 className="w-4 h-4 text-muted-foreground" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettleSplits((prev) => [...prev, { method: "", amount: "" }])}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Adicionar forma de pagamento
+                  </Button>
+
+                  <div
+                    className={cn(
+                      "rounded-lg p-3 text-sm font-medium",
+                      Math.abs(settleRemaining) < CENT_TOLERANCE
+                        ? "bg-success/10 text-success"
+                        : "bg-warning/10 text-warning"
+                    )}
+                  >
+                    {Math.abs(settleRemaining) < CENT_TOLERANCE
+                      ? "Valores conferem com o débito."
+                      : settleRemaining > 0
+                        ? `Falta alocar: ${formatCurrencyBR(settleRemaining)}`
+                        : `Excedeu em: ${formatCurrencyBR(Math.abs(settleRemaining))}`}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSettlingPayment(null)}
+                  disabled={isProcessing}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1 gradient-primary border-0"
+                  onClick={handleConfirmSettleSingle}
+                  disabled={isProcessing || !canConfirmSettle}
+                >
+                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar Recebimento"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Pay/Receive Dialog */}
+
       <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
