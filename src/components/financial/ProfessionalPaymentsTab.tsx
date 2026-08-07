@@ -32,7 +32,11 @@ import {
   Pencil,
   CalendarIcon,
   ArrowLeftRight,
+  Trash2,
+  Plus,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+
 import { cn } from "@/lib/utils";
 import { formatDateBR, formatCurrencyBR } from "@/lib/export-utils";
 import { formatCurrency } from "@/lib/validations";
@@ -52,6 +56,11 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+export interface PaymentSplit {
+  method: string;
+  amount: number;
+}
+
 interface ProfessionalPayment {
   id: string;
   professional_id: string;
@@ -62,6 +71,7 @@ interface ProfessionalPayment {
   is_paid: boolean;
   paid_at: string | null;
   payment_method: string | null;
+  payment_splits: PaymentSplit[] | null;
   created_at: string;
   professionals: { name: string } | null;
   appointments: { 
@@ -89,6 +99,26 @@ const paymentMethodLabels: Record<string, string> = {
   transferencia: "Transferência",
 };
 
+const methodLabel = (m: string | null) =>
+  m ? paymentMethodLabels[m] || m : "-";
+
+// Normaliza payment_splits vindo do banco (jsonb) para o formato tipado
+const parseSplits = (raw: unknown): PaymentSplit[] | null => {
+  if (!Array.isArray(raw)) return null;
+  const items = raw
+    .map((i: any) => ({ method: String(i?.method ?? ""), amount: Number(i?.amount ?? 0) }))
+    .filter((i) => i.method && i.amount > 0);
+  return items.length > 0 ? items : null;
+};
+
+// "Dinheiro R$50,00 + PIX R$30,00"
+export const formatSplits = (splits: PaymentSplit[]) =>
+  splits.map((s) => `${methodLabel(s.method)} ${formatCurrencyBR(s.amount)}`).join(" + ");
+
+// Tolerância de centavos para comparar soma das formas com o valor do débito
+const CENT_TOLERANCE = 0.005;
+
+
 export function ProfessionalPaymentsTab() {
   const [payments, setPayments] = useState<ProfessionalPayment[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -107,7 +137,16 @@ export function ProfessionalPaymentsTab() {
   const [editTotalValue, setEditTotalValue] = useState("");
   const [editClinicPercentage, setEditClinicPercentage] = useState("25");
   const [fixingPayment, setFixingPayment] = useState<ProfessionalPayment | null>(null);
+  // Quitação individual (somente "Receber de Profissionais")
+  const [settlingPayment, setSettlingPayment] = useState<ProfessionalPayment | null>(null);
+  const [settleDate, setSettleDate] = useState<Date | undefined>(undefined);
+  const [settleMethod, setSettleMethod] = useState("");
+  const [settleIsSplit, setSettleIsSplit] = useState(false);
+  const [settleSplits, setSettleSplits] = useState<{ method: string; amount: string }[]>([
+    { method: "", amount: "" },
+  ]);
   const { toast } = useToast();
+
 
   useEffect(() => {
     fetchPayments();
@@ -141,9 +180,13 @@ export function ProfessionalPaymentsTab() {
     }
 
     // Filter out cancelled appointments
-    const validPayments = (paymentsData || []).filter(
-      payment => payment.appointments?.status !== "cancelado"
-    ) as ProfessionalPayment[];
+    const validPayments = (paymentsData || [])
+      .filter((payment: any) => payment.appointments?.status !== "cancelado")
+      .map((payment: any) => ({
+        ...payment,
+        payment_splits: parseSplits(payment.payment_splits),
+      })) as ProfessionalPayment[];
+
 
     setPayments(validPayments);
     setIsLoading(false);
@@ -286,13 +329,18 @@ export function ProfessionalPaymentsTab() {
         // Não gera movimentação financeira zerada e evita duplicação por reprocessamento.
         if ((transactionAmount || 0) <= 0) continue;
 
+        // A checagem de duplicidade considera também a forma de pagamento:
+        // sem isso, um pagamento dividido com dois valores iguais teria a
+        // segunda perna descartada como "duplicada", sumindo do caixa.
         const { data: existingTransactions, error: existingError } = await supabase
           .from("transactions")
           .select("id")
           .eq("appointment_id", payment.appointment_id)
           .eq("type", transactionType)
           .eq("amount", transactionAmount)
+          .eq("payment_method", paymentMethod)
           .limit(1);
+
 
         if (existingError) throw existingError;
         if ((existingTransactions || []).length > 0) continue;
@@ -358,7 +406,19 @@ export function ProfessionalPaymentsTab() {
 
   const handleSaveEdit = async () => {
     if (!editingPayment) return;
+    // Pagamento dividido gera 2+ linhas em transactions para o mesmo agendamento.
+    // Ajustar apenas a primeira corromperia o caixa — bloqueamos a edição.
+    if (editingPayment.is_paid && editingPayment.payment_splits) {
+      toast({
+        title: "Débito quitado com pagamento dividido",
+        description:
+          "Este débito foi quitado em mais de uma forma de pagamento. Estorne os lançamentos no Financeiro antes de alterar os valores.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsProcessing(true);
+
     try {
       const numValue = parseFloat(editTotalValue.replace(/[^\d,]/g, "").replace(",", ".")) ||
                        parseFloat(editTotalValue.replace(/\D/g, "")) / 100;
@@ -404,6 +464,108 @@ export function ProfessionalPaymentsTab() {
       setIsProcessing(false);
     }
   };
+
+  // ---------- Quitação individual de 1 débito (Receber de Profissionais) ----------
+
+  const openSettleDialog = (payment: ProfessionalPayment) => {
+    setSettlingPayment(payment);
+    setSettleDate(undefined);
+    setSettleMethod("");
+    setSettleIsSplit(false);
+    setSettleSplits([{ method: "", amount: "" }]);
+  };
+
+  const parseAmountInput = (v: string) => {
+    const normalized = v.replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, "");
+    const n = parseFloat(normalized);
+    return isNaN(n) ? 0 : n;
+  };
+
+  const settleSplitsTotal = settleSplits.reduce((sum, s) => sum + parseAmountInput(s.amount), 0);
+  const settleTarget = settlingPayment?.clinic_amount ?? 0;
+  const settleRemaining = settleTarget - settleSplitsTotal;
+  const settleSplitsValid =
+    settleSplits.length > 0 &&
+    settleSplits.every((s) => s.method && parseAmountInput(s.amount) > 0) &&
+    Math.abs(settleRemaining) < CENT_TOLERANCE;
+  const canConfirmSettle = settleIsSplit ? settleSplitsValid : !!settleMethod;
+
+  const handleConfirmSettleSingle = async () => {
+    if (!settlingPayment || !canConfirmSettle) return;
+    setIsProcessing(true);
+    try {
+      const payment = settlingPayment;
+      const effectiveDate = settleDate ?? new Date();
+      const effectiveDateStr = format(effectiveDate, "yyyy-MM-dd");
+      const splits: PaymentSplit[] | null = settleIsSplit
+        ? settleSplits.map((s) => ({ method: s.method, amount: parseAmountInput(s.amount) }))
+        : null;
+
+      const { error: updError } = await supabase
+        .from("professional_payments")
+        .update({
+          is_paid: true,
+          paid_at: effectiveDate.toISOString(),
+          payment_method: splits ? "misto" : settleMethod,
+          payment_splits: splits as any,
+        })
+        .eq("id", payment.id);
+      if (updError) throw updError;
+
+      const apptDate = payment.appointments?.appointment_date
+        ? formatDateBR(payment.appointments.appointment_date)
+        : "";
+      const description = `Recebimento comissão - ${payment.appointments?.patients?.name || "Paciente"} - ${payment.professionals?.name || "Profissional"}${apptDate ? ` - ${apptDate}` : ""}`;
+
+      // 1 lançamento por forma de pagamento (ou 1 único, quando não dividido)
+      const entries = splits ?? [{ method: settleMethod, amount: payment.clinic_amount }];
+
+      for (const entry of entries) {
+        if ((entry.amount || 0) <= 0) continue;
+
+        // Duplicidade considera appointment_id + type + amount + payment_method
+        const { data: existing, error: existingError } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("appointment_id", payment.appointment_id)
+          .eq("type", "entrada")
+          .eq("amount", entry.amount)
+          .eq("payment_method", entry.method)
+          .limit(1);
+        if (existingError) throw existingError;
+        if ((existing || []).length > 0) continue;
+
+        const { error: insError } = await supabase.from("transactions").insert({
+          description,
+          type: "entrada",
+          amount: entry.amount,
+          payment_method: entry.method,
+          transaction_date: effectiveDateStr,
+          transaction_time: new Date().toTimeString().slice(0, 5),
+          professional_id: payment.professional_id,
+          appointment_id: payment.appointment_id,
+        });
+        if (insError) throw insError;
+      }
+
+      toast({
+        title: "Débito quitado!",
+        description: splits
+          ? `Recebido em ${splits.length} formas: ${formatSplits(splits)}.`
+          : `Recebido ${formatCurrencyBR(payment.clinic_amount)} em ${methodLabel(settleMethod)}.`,
+      });
+
+      setSettlingPayment(null);
+      setSelectedPayments((prev) => prev.filter((id) => id !== payment.id));
+      await Promise.all([fetchPayments(), fetchProfessionals()]);
+    } catch (error: any) {
+      toast({ title: "Erro ao quitar débito", description: error.message, variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
 
   const handleConfirmFixDestination = async () => {
     if (!fixingPayment || fixingPayment.is_paid) return;
@@ -652,7 +814,9 @@ export function ProfessionalPaymentsTab() {
                   <th className="text-right p-4 table-header">
                     {activeSubTab === "pay_professionals" ? "Profissional (75%)" : "Clínica (25%)"}
                   </th>
+                  <th className="text-left p-4 table-header hidden xl:table-cell">Forma</th>
                   <th className="text-center p-4 table-header">Status</th>
+
                   <th className="text-center p-4 table-header w-10"></th>
                 </tr>
               </thead>
@@ -708,7 +872,17 @@ export function ProfessionalPaymentsTab() {
                           : payment.clinic_amount)}
                       </span>
                     </td>
+                    <td className="p-4 hidden xl:table-cell">
+                      <span className="text-sm text-muted-foreground">
+                        {payment.is_paid
+                          ? payment.payment_splits
+                            ? formatSplits(payment.payment_splits)
+                            : methodLabel(payment.payment_method)
+                          : "-"}
+                      </span>
+                    </td>
                     <td className="p-4 text-center">
+
                       <Badge 
                         variant="outline"
                         className={cn(
@@ -725,6 +899,18 @@ export function ProfessionalPaymentsTab() {
                     </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-1">
+                        {activeSubTab === "receive_from_professionals" && !payment.is_paid && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => openSettleDialog(payment)}
+                            title="Quitar este débito"
+                          >
+                            <DollarSign className="w-3.5 h-3.5 mr-1" />
+                            Quitar
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -734,6 +920,7 @@ export function ProfessionalPaymentsTab() {
                         >
                           <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
                         </Button>
+
                         <span
                           title={
                             payment.is_paid
@@ -762,7 +949,194 @@ export function ProfessionalPaymentsTab() {
         )}
       </div>
 
+      {/* Quitação individual de 1 débito (Receber de Profissionais) */}
+      <Dialog open={!!settlingPayment} onOpenChange={(o) => !o && setSettlingPayment(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-primary-foreground" />
+              </div>
+              Quitar Débito
+            </DialogTitle>
+          </DialogHeader>
+
+          {settlingPayment && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-muted/30">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Profissional</span>
+                  <span className="font-medium">{settlingPayment.professionals?.name || "-"}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-muted-foreground">Paciente</span>
+                  <span className="font-medium">{settlingPayment.appointments?.patients?.name || "-"}</span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-3">Valor a receber</p>
+                <p className="text-2xl font-bold text-primary">{formatCurrencyBR(settleTarget)}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Data do Recebimento</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !settleDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {settleDate ? format(settleDate, "dd/MM/yyyy", { locale: ptBR }) : "Hoje (padrão)"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={settleDate}
+                      onSelect={setSettleDate}
+                      disabled={(date) => date > new Date()}
+                      initialFocus
+                      locale={ptBR}
+                      className={cn("p-3 pointer-events-auto")}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border/30 p-3">
+                <Label htmlFor="split-toggle" className="text-sm font-medium">
+                  Pagamento dividido?
+                </Label>
+                <Switch
+                  id="split-toggle"
+                  checked={settleIsSplit}
+                  onCheckedChange={(checked) => {
+                    setSettleIsSplit(checked);
+                    if (checked) {
+                      setSettleSplits([{ method: "", amount: "" }]);
+                    } else {
+                      setSettleMethod("");
+                    }
+                  }}
+                />
+              </div>
+
+              {!settleIsSplit ? (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Forma de Pagamento</Label>
+                  <Select value={settleMethod} onValueChange={setSettleMethod}>
+                    <SelectTrigger>
+                      <CreditCard className="w-4 h-4 mr-2" />
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Formas de Pagamento</Label>
+                  {settleSplits.map((split, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Select
+                        value={split.method}
+                        onValueChange={(v) =>
+                          setSettleSplits((prev) =>
+                            prev.map((s, i) => (i === index ? { ...s, method: v } : s))
+                          )
+                        }
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Forma" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(paymentMethodLabels).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        className="w-32"
+                        inputMode="decimal"
+                        placeholder="R$ 0,00"
+                        value={split.amount}
+                        onChange={(e) =>
+                          setSettleSplits((prev) =>
+                            prev.map((s, i) => (i === index ? { ...s, amount: e.target.value } : s))
+                          )
+                        }
+                      />
+                      {settleSplits.length > 1 && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-9 w-9 p-0"
+                          onClick={() =>
+                            setSettleSplits((prev) => prev.filter((_, i) => i !== index))
+                          }
+                          title="Remover forma"
+                        >
+                          <Trash2 className="w-4 h-4 text-muted-foreground" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettleSplits((prev) => [...prev, { method: "", amount: "" }])}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Adicionar forma de pagamento
+                  </Button>
+
+                  <div
+                    className={cn(
+                      "rounded-lg p-3 text-sm font-medium",
+                      Math.abs(settleRemaining) < CENT_TOLERANCE
+                        ? "bg-success/10 text-success"
+                        : "bg-warning/10 text-warning"
+                    )}
+                  >
+                    {Math.abs(settleRemaining) < CENT_TOLERANCE
+                      ? "Valores conferem com o débito."
+                      : settleRemaining > 0
+                        ? `Falta alocar: ${formatCurrencyBR(settleRemaining)}`
+                        : `Excedeu em: ${formatCurrencyBR(Math.abs(settleRemaining))}`}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setSettlingPayment(null)}
+                  disabled={isProcessing}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1 gradient-primary border-0"
+                  onClick={handleConfirmSettleSingle}
+                  disabled={isProcessing || !canConfirmSettle}
+                >
+                  {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar Recebimento"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Pay/Receive Dialog */}
+
       <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>

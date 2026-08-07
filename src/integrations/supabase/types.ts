@@ -471,6 +471,7 @@ export type Database = {
           paid_at: string | null
           payment_destination: string
           payment_method: string | null
+          payment_splits: Json | null
           professional_amount: number
           professional_id: string
           total_value: number
@@ -484,6 +485,7 @@ export type Database = {
           paid_at?: string | null
           payment_destination?: string
           payment_method?: string | null
+          payment_splits?: Json | null
           professional_amount: number
           professional_id: string
           total_value: number
@@ -497,6 +499,7 @@ export type Database = {
           paid_at?: string | null
           payment_destination?: string
           payment_method?: string | null
+          payment_splits?: Json | null
           professional_amount?: number
           professional_id?: string
           total_value?: number

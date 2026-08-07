@@ -79,13 +79,22 @@ async function recalculateAppointmentFinancials(params: {
   // Find existing financial record for this appointment
   const { data: payment } = await supabase
     .from("professional_payments")
-    .select("id, payment_destination, is_paid, professional_id, payment_method")
+    .select("id, payment_destination, is_paid, professional_id, payment_method, payment_splits")
     .eq("appointment_id", appointmentId)
     .maybeSingle();
 
   if (!payment) {
     return { updated: false, details: { reason: "no_financial_record" } };
   }
+
+  // Quitação com pagamento dividido gera 2+ entradas para o mesmo agendamento.
+  // Reajustar o valor aqui corromperia o caixa (só a 1ª linha seria alterada).
+  if ((payment as any).payment_splits) {
+    throw new Error(
+      "Este atendimento foi quitado com pagamento dividido em mais de uma forma. Estorne os lançamentos no Financeiro antes de alterar o valor."
+    );
+  }
+
 
   const newClinicAmount = (newValue * newClinicPct) / 100;
   const newProfessionalAmount = newValue - newClinicAmount;
