@@ -895,6 +895,18 @@ export function ProfessionalPaymentsTab() {
                     </td>
                     <td className="p-4 text-center">
                       <div className="flex items-center justify-center gap-1">
+                        {activeSubTab === "receive_from_professionals" && !payment.is_paid && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => openSettleDialog(payment)}
+                            title="Quitar este débito"
+                          >
+                            <DollarSign className="w-3.5 h-3.5 mr-1" />
+                            Quitar
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="ghost"
@@ -904,6 +916,7 @@ export function ProfessionalPaymentsTab() {
                         >
                           <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
                         </Button>
+
                         <span
                           title={
                             payment.is_paid
