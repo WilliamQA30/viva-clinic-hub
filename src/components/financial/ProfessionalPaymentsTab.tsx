@@ -32,7 +32,11 @@ import {
   Pencil,
   CalendarIcon,
   ArrowLeftRight,
+  Trash2,
+  Plus,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+
 import { cn } from "@/lib/utils";
 import { formatDateBR, formatCurrencyBR } from "@/lib/export-utils";
 import { formatCurrency } from "@/lib/validations";
