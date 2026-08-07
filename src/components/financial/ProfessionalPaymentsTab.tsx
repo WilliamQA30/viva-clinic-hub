@@ -461,6 +461,108 @@ export function ProfessionalPaymentsTab() {
     }
   };
 
+  // ---------- Quitação individual de 1 débito (Receber de Profissionais) ----------
+
+  const openSettleDialog = (payment: ProfessionalPayment) => {
+    setSettlingPayment(payment);
+    setSettleDate(undefined);
+    setSettleMethod("");
+    setSettleIsSplit(false);
+    setSettleSplits([{ method: "", amount: "" }]);
+  };
+
+  const parseAmountInput = (v: string) => {
+    const normalized = v.replace(/\./g, "").replace(",", ".").replace(/[^\d.]/g, "");
+    const n = parseFloat(normalized);
+    return isNaN(n) ? 0 : n;
+  };
+
+  const settleSplitsTotal = settleSplits.reduce((sum, s) => sum + parseAmountInput(s.amount), 0);
+  const settleTarget = settlingPayment?.clinic_amount ?? 0;
+  const settleRemaining = settleTarget - settleSplitsTotal;
+  const settleSplitsValid =
+    settleSplits.length > 0 &&
+    settleSplits.every((s) => s.method && parseAmountInput(s.amount) > 0) &&
+    Math.abs(settleRemaining) < CENT_TOLERANCE;
+  const canConfirmSettle = settleIsSplit ? settleSplitsValid : !!settleMethod;
+
+  const handleConfirmSettleSingle = async () => {
+    if (!settlingPayment || !canConfirmSettle) return;
+    setIsProcessing(true);
+    try {
+      const payment = settlingPayment;
+      const effectiveDate = settleDate ?? new Date();
+      const effectiveDateStr = format(effectiveDate, "yyyy-MM-dd");
+      const splits: PaymentSplit[] | null = settleIsSplit
+        ? settleSplits.map((s) => ({ method: s.method, amount: parseAmountInput(s.amount) }))
+        : null;
+
+      const { error: updError } = await supabase
+        .from("professional_payments")
+        .update({
+          is_paid: true,
+          paid_at: effectiveDate.toISOString(),
+          payment_method: splits ? "misto" : settleMethod,
+          payment_splits: splits as any,
+        })
+        .eq("id", payment.id);
+      if (updError) throw updError;
+
+      const apptDate = payment.appointments?.appointment_date
+        ? formatDateBR(payment.appointments.appointment_date)
+        : "";
+      const description = `Recebimento comissão - ${payment.appointments?.patients?.name || "Paciente"} - ${payment.professionals?.name || "Profissional"}${apptDate ? ` - ${apptDate}` : ""}`;
+
+      // 1 lançamento por forma de pagamento (ou 1 único, quando não dividido)
+      const entries = splits ?? [{ method: settleMethod, amount: payment.clinic_amount }];
+
+      for (const entry of entries) {
+        if ((entry.amount || 0) <= 0) continue;
+
+        // Duplicidade considera appointment_id + type + amount + payment_method
+        const { data: existing, error: existingError } = await supabase
+          .from("transactions")
+          .select("id")
+          .eq("appointment_id", payment.appointment_id)
+          .eq("type", "entrada")
+          .eq("amount", entry.amount)
+          .eq("payment_method", entry.method)
+          .limit(1);
+        if (existingError) throw existingError;
+        if ((existing || []).length > 0) continue;
+
+        const { error: insError } = await supabase.from("transactions").insert({
+          description,
+          type: "entrada",
+          amount: entry.amount,
+          payment_method: entry.method,
+          transaction_date: effectiveDateStr,
+          transaction_time: new Date().toTimeString().slice(0, 5),
+          professional_id: payment.professional_id,
+          appointment_id: payment.appointment_id,
+        });
+        if (insError) throw insError;
+      }
+
+      toast({
+        title: "Débito quitado!",
+        description: splits
+          ? `Recebido em ${splits.length} formas: ${formatSplits(splits)}.`
+          : `Recebido ${formatCurrencyBR(payment.clinic_amount)} em ${methodLabel(settleMethod)}.`,
+      });
+
+      setSettlingPayment(null);
+      setSelectedPayments((prev) => prev.filter((id) => id !== payment.id));
+      await Promise.all([fetchPayments(), fetchProfessionals()]);
+    } catch (error: any) {
+      toast({ title: "Erro ao quitar débito", description: error.message, variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
+
   const handleConfirmFixDestination = async () => {
     if (!fixingPayment || fixingPayment.is_paid) return;
     const oldDest = fixingPayment.payment_destination === "clinic" ? "clinic" : "professional";
