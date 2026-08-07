@@ -52,6 +52,11 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
+export interface PaymentSplit {
+  method: string;
+  amount: number;
+}
+
 interface ProfessionalPayment {
   id: string;
   professional_id: string;
@@ -62,6 +67,7 @@ interface ProfessionalPayment {
   is_paid: boolean;
   paid_at: string | null;
   payment_method: string | null;
+  payment_splits: PaymentSplit[] | null;
   created_at: string;
   professionals: { name: string } | null;
   appointments: { 
@@ -88,6 +94,26 @@ const paymentMethodLabels: Record<string, string> = {
   cartao_debito: "Cartão Débito",
   transferencia: "Transferência",
 };
+
+const methodLabel = (m: string | null) =>
+  m ? paymentMethodLabels[m] || m : "-";
+
+// Normaliza payment_splits vindo do banco (jsonb) para o formato tipado
+const parseSplits = (raw: unknown): PaymentSplit[] | null => {
+  if (!Array.isArray(raw)) return null;
+  const items = raw
+    .map((i: any) => ({ method: String(i?.method ?? ""), amount: Number(i?.amount ?? 0) }))
+    .filter((i) => i.method && i.amount > 0);
+  return items.length > 0 ? items : null;
+};
+
+// "Dinheiro R$50,00 + PIX R$30,00"
+export const formatSplits = (splits: PaymentSplit[]) =>
+  splits.map((s) => `${methodLabel(s.method)} ${formatCurrencyBR(s.amount)}`).join(" + ");
+
+// Tolerância de centavos para comparar soma das formas com o valor do débito
+const CENT_TOLERANCE = 0.005;
+
 
 export function ProfessionalPaymentsTab() {
   const [payments, setPayments] = useState<ProfessionalPayment[]>([]);
