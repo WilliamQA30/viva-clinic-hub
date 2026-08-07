@@ -169,13 +169,25 @@ export function TransactionDeleteDialog({
     }
 
     if (info.origin === "comissao_clinica" && transaction.appointment_id) {
+      // Um débito quitado com pagamento dividido tem 2+ entradas de comissão para o
+      // mesmo agendamento. Ao estornar uma delas, removemos as pernas restantes para
+      // não deixar lançamentos órfãos no caixa com o débito reaberto.
+      await supabase
+        .from("transactions")
+        .delete()
+        .eq("appointment_id", transaction.appointment_id)
+        .eq("type", "entrada")
+        .ilike("description", "Recebimento comissão%")
+        .neq("id", transaction.id);
+
       // Voltar repasse vinculado para pendente
       await supabase
         .from("professional_payments")
-        .update({ is_paid: false, paid_at: null, payment_method: null })
+        .update({ is_paid: false, paid_at: null, payment_method: null, payment_splits: null })
         .eq("appointment_id", transaction.appointment_id);
       return;
     }
+
 
     if (info.origin === "repasse_profissional" && transaction.appointment_id) {
       // Saída de repasse excluída -> voltar professional_payments para pendente
