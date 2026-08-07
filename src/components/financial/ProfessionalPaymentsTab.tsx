@@ -810,7 +810,9 @@ export function ProfessionalPaymentsTab() {
                   <th className="text-right p-4 table-header">
                     {activeSubTab === "pay_professionals" ? "Profissional (75%)" : "Clínica (25%)"}
                   </th>
+                  <th className="text-left p-4 table-header hidden xl:table-cell">Forma</th>
                   <th className="text-center p-4 table-header">Status</th>
+
                   <th className="text-center p-4 table-header w-10"></th>
                 </tr>
               </thead>
