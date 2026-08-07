@@ -868,7 +868,17 @@ export function ProfessionalPaymentsTab() {
                           : payment.clinic_amount)}
                       </span>
                     </td>
+                    <td className="p-4 hidden xl:table-cell">
+                      <span className="text-sm text-muted-foreground">
+                        {payment.is_paid
+                          ? payment.payment_splits
+                            ? formatSplits(payment.payment_splits)
+                            : methodLabel(payment.payment_method)
+                          : "-"}
+                      </span>
+                    </td>
                     <td className="p-4 text-center">
+
                       <Badge 
                         variant="outline"
                         className={cn(
