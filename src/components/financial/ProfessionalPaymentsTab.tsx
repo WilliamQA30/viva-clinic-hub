@@ -402,7 +402,19 @@ export function ProfessionalPaymentsTab() {
 
   const handleSaveEdit = async () => {
     if (!editingPayment) return;
+    // Pagamento dividido gera 2+ linhas em transactions para o mesmo agendamento.
+    // Ajustar apenas a primeira corromperia o caixa — bloqueamos a edição.
+    if (editingPayment.is_paid && editingPayment.payment_splits) {
+      toast({
+        title: "Débito quitado com pagamento dividido",
+        description:
+          "Este débito foi quitado em mais de uma forma de pagamento. Estorne os lançamentos no Financeiro antes de alterar os valores.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsProcessing(true);
+
     try {
       const numValue = parseFloat(editTotalValue.replace(/[^\d,]/g, "").replace(",", ".")) ||
                        parseFloat(editTotalValue.replace(/\D/g, "")) / 100;
