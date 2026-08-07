@@ -325,13 +325,18 @@ export function ProfessionalPaymentsTab() {
         // Não gera movimentação financeira zerada e evita duplicação por reprocessamento.
         if ((transactionAmount || 0) <= 0) continue;
 
+        // A checagem de duplicidade considera também a forma de pagamento:
+        // sem isso, um pagamento dividido com dois valores iguais teria a
+        // segunda perna descartada como "duplicada", sumindo do caixa.
         const { data: existingTransactions, error: existingError } = await supabase
           .from("transactions")
           .select("id")
           .eq("appointment_id", payment.appointment_id)
           .eq("type", transactionType)
           .eq("amount", transactionAmount)
+          .eq("payment_method", paymentMethod)
           .limit(1);
+
 
         if (existingError) throw existingError;
         if ((existingTransactions || []).length > 0) continue;
