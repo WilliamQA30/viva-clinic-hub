@@ -167,9 +167,13 @@ export function ProfessionalPaymentsTab() {
     }
 
     // Filter out cancelled appointments
-    const validPayments = (paymentsData || []).filter(
-      payment => payment.appointments?.status !== "cancelado"
-    ) as ProfessionalPayment[];
+    const validPayments = (paymentsData || [])
+      .filter((payment: any) => payment.appointments?.status !== "cancelado")
+      .map((payment: any) => ({
+        ...payment,
+        payment_splits: parseSplits(payment.payment_splits),
+      })) as ProfessionalPayment[];
+
 
     setPayments(validPayments);
     setIsLoading(false);
