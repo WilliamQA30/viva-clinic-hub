@@ -133,7 +133,16 @@ export function ProfessionalPaymentsTab() {
   const [editTotalValue, setEditTotalValue] = useState("");
   const [editClinicPercentage, setEditClinicPercentage] = useState("25");
   const [fixingPayment, setFixingPayment] = useState<ProfessionalPayment | null>(null);
+  // Quitação individual (somente "Receber de Profissionais")
+  const [settlingPayment, setSettlingPayment] = useState<ProfessionalPayment | null>(null);
+  const [settleDate, setSettleDate] = useState<Date | undefined>(undefined);
+  const [settleMethod, setSettleMethod] = useState("");
+  const [settleIsSplit, setSettleIsSplit] = useState(false);
+  const [settleSplits, setSettleSplits] = useState<{ method: string; amount: string }[]>([
+    { method: "", amount: "" },
+  ]);
   const { toast } = useToast();
+
 
   useEffect(() => {
     fetchPayments();
