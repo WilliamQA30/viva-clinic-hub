@@ -29,6 +29,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/validations";
+import { computeFloor, sumReceivedClinicCommission } from "@/lib/business-rules";
 import { DollarSign, Calendar, Clock, FileText, Loader2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
@@ -138,27 +139,46 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
     const [settingsRes, shiftsRes, paymentsRes, transactionsRes] = await Promise.all([
       supabase.from("clinic_settings").select("value").eq("key", "floor_value_per_shift").maybeSingle(),
       supabase.from("professional_shifts").select("professional_id").eq("professional_id", profId),
-      supabase.from("professional_payments").select("professional_id, clinic_amount, appointments(status, appointment_date)").eq("professional_id", profId),
-      supabase.from("transactions").select("professional_id, amount").eq("type", "entrada").eq("professional_id", profId).gte("transaction_date", startDate).lte("transaction_date", endDate),
+      supabase
+        .from("professional_payments")
+        .select("professional_id, clinic_amount, is_paid, payment_destination, appointments(status, appointment_date)")
+        .eq("professional_id", profId),
+      supabase
+        .from("transactions")
+        .select("professional_id, amount, appointment_id")
+        .eq("type", "entrada")
+        .eq("professional_id", profId)
+        .gte("transaction_date", startDate)
+        .lte("transaction_date", endDate),
     ]);
 
     const floorPerShift = parseFloat(settingsRes.data?.value || "0");
     const shiftCount = (shiftsRes.data || []).length;
-    
-    const clinicRevenue = (paymentsRes.data || [])
-      .filter((p: any) => {
-        const d = p.appointments?.appointment_date;
-        return d && d >= startDate && d <= endDate && p.appointments?.status !== "cancelado";
-      })
-      .reduce((sum: number, p: any) => sum + (p.clinic_amount || 0), 0);
 
+    // Mesmo filtro do motor único: só conta comissão EFETIVAMENTE recebida
+    // pela clínica no mês (ver business-rules.ts).
+    const periodPayments = (paymentsRes.data || []).filter((p: any) => {
+      const d = p.appointments?.appointment_date;
+      return d && d >= startDate && d <= endDate;
+    });
+    const clinicRevenue = sumReceivedClinicCommission(periodPayments as any);
+
+    // Só entradas manuais SEM appointment_id contam — entradas vinculadas a
+    // consulta já estão refletidas em clinic_amount acima; somá-las de novo
+    // duplicaria o valor (era a causa da divergência com os Relatórios).
     const directEntries = (transactionsRes.data || [])
+      .filter((t: any) => !t.appointment_id)
       .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
 
-    const gap = Math.max(0, (floorPerShift * shiftCount) - clinicRevenue - directEntries);
-    setFloorGap(gap);
+    const { gapToFloor } = computeFloor({
+      shifts: shiftCount,
+      floorPerShift,
+      receivedClinicCommission: clinicRevenue,
+      directEntries,
+    });
+    setFloorGap(gapToFloor);
     setFloorLoading(false);
-    return gap;
+    return gapToFloor;
   }, []);
 
   // Recalculate when month or professional changes in floor payment mode
