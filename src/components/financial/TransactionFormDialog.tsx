@@ -253,13 +253,27 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
     }
   };
 
-  const updateTransactionDateForFloorMonth = () => {
-    // Always use current date for floor payment transactions
+  // A entrada de piso é atribuída ao mês pelo próprio `transaction_date`
+  // (não existe coluna separada de "mês de referência" no banco — ver
+  // fetchFloorGapForProfessional/business-rules.ts, que filtram
+  // directEntries por transaction_date dentro do período do mês). Por
+  // isso a data salva PRECISA cair dentro do mês de referência
+  // selecionado, senão a entrada abate do mês errado (bug real: secretária
+  // selecionava Julho, mas a data ficava travada em hoje/Agosto e a
+  // entrada contava pro piso de Agosto).
+  // Recebe o mês explicitamente em vez de ler o state `floorMonth` — ele é
+  // chamado logo após um setFloorMonth(v), e como setState é assíncrono o
+  // closure ainda veria o valor antigo.
+  const updateTransactionDateForFloorMonth = (month: string) => {
+    const [y, m] = month.split("-").map(Number);
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    form.setValue("transaction_date", `${y}-${m}-${d}`);
+    const isCurrentMonth = y === now.getFullYear() && m === now.getMonth() + 1;
+    // Mês corrente: usa o dia de hoje (comportamento de antes). Mês
+    // passado: usa o último dia do mês de referência, pra data cair
+    // dentro do período que os Relatórios vão consultar.
+    const day = isCurrentMonth ? now.getDate() : new Date(y, m, 0).getDate();
+    const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    form.setValue("transaction_date", dateStr);
   };
 
   const handleFloorProfessionalChange = async (value: string, fieldOnChange: (v: string) => void) => {
@@ -274,7 +288,7 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
           form.setValue("description", `Complemento piso - ${prof.name} - ${monthNames[m - 1]}/${y}`);
         }
       }
-      updateTransactionDateForFloorMonth();
+      updateTransactionDateForFloorMonth(floorMonth);
     }
   };
 
@@ -358,7 +372,7 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
               <div className="space-y-4 rounded-lg border border-primary/20 p-3 bg-primary/5">
                 <div>
                   <Label className="text-sm font-medium">Mês de referência *</Label>
-                  <Select value={floorMonth} onValueChange={(v) => { setFloorMonth(v); updateTransactionDateForFloorMonth(); }}>
+                  <Select value={floorMonth} onValueChange={(v) => { setFloorMonth(v); updateTransactionDateForFloorMonth(v); }}>
                     <SelectTrigger className="mt-1.5">
                       <Calendar className="w-4 h-4 mr-2 text-muted-foreground" />
                       <SelectValue />
@@ -496,7 +510,10 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
                     <FormControl>
                       <div className="relative">
                         <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input type="date" className="pl-10" {...field} />
+                        {/* input[type=date] exibe dd/mm ou mm/dd conforme o idioma do
+                            navegador/SO, não o idioma do app — lang força padrão brasileiro
+                            (dd/mm/aaaa) mesmo em ambiente configurado em inglês. */}
+                        <Input type="date" lang="pt-BR" className="pl-10" {...field} />
                       </div>
                     </FormControl>
                     <FormMessage />
