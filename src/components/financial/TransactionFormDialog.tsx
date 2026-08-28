@@ -26,12 +26,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/validations";
 import { computeFloor, sumReceivedClinicCommission } from "@/lib/business-rules";
+import { cn } from "@/lib/utils";
 import { DollarSign, Calendar, Clock, FileText, Loader2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
+
+/** "YYYY-MM-DD" -> Date local (evita o shift de fuso de `new Date(str)`,
+ * que interpreta a string como UTC meia-noite). */
+function parseISODate(dateStr: string): Date | undefined {
+  if (!dateStr) return undefined;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 
 const transactionSchema = z.object({
   description: z.string().min(3, "Descrição deve ter pelo menos 3 caracteres"),
@@ -70,6 +83,18 @@ const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
+
+/** Primeiro e último dia (formato YYYY-MM-DD) do mês "YYYY-MM" — usado
+ * como min/max do input de Data no pagamento de piso, pra travar só o
+ * mês (não o dia) selecionado em "Mês de referência". */
+function getFloorMonthDateBounds(month: string): { min: string; max: string } {
+  const [y, m] = month.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  return {
+    min: `${y}-${String(m).padStart(2, "0")}-01`,
+    max: `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
+  };
+}
 
 export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultType = "entrada" }: TransactionFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -196,9 +221,25 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
   }, [floorMonth, isFloorPayment, fetchFloorGapForProfessional, form]);
 
   const onSubmit = async (data: TransactionFormData) => {
+    // Guarda extra: mesmo com min/max no input, nada garante que todo
+    // navegador bloqueie uma data digitada fora do intervalo — então
+    // confere de novo aqui antes de salvar (é isso que decide o mês que
+    // a entrada abate nos Relatórios, ver business-rules.ts).
+    if (isFloorPayment) {
+      const { min, max } = getFloorMonthDateBounds(floorMonth);
+      if (data.transaction_date < min || data.transaction_date > max) {
+        toast({
+          title: "Data fora do mês de referência",
+          description: `A data precisa estar dentro de ${monthNames[Number(floorMonth.split("-")[1]) - 1]}/${floorMonth.split("-")[0]}, senão a entrada abate do mês errado nos Relatórios.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
-      const amountValue = parseFloat(data.amount.replace(/[^\d,]/g, "").replace(",", ".")) || 
+      const amountValue = parseFloat(data.amount.replace(/[^\d,]/g, "").replace(",", ".")) ||
                           parseFloat(data.amount.replace(/\D/g, "")) / 100;
 
       const { error } = await supabase.from("transactions").insert({
@@ -504,37 +545,67 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
               <FormField
                 control={form.control}
                 name="transaction_date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Data *</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        {/* input[type=date] exibe dd/mm ou mm/dd conforme o idioma do
-                            navegador/SO, não o idioma do app — lang força padrão brasileiro
-                            (dd/mm/aaaa) mesmo em ambiente configurado em inglês. */}
-                        {/* Em modo piso, essa data decide o mês que a entrada abate nos
-                            Relatórios (não existe coluna separada de "mês de referência"
-                            no banco) — por isso fica travada no valor calculado a partir
-                            do "Mês de referência" acima. Editar aqui manualmente já causou
-                            entradas de piso contadas no mês errado (ver caso Gorete/Jul26). */}
-                        <Input
-                          type="date"
-                          lang="pt-BR"
-                          className="pl-10"
-                          disabled={isFloorPayment}
-                          {...field}
-                        />
-                      </div>
-                    </FormControl>
-                    {isFloorPayment && (
-                      <p className="text-xs text-muted-foreground">
-                        Travada no mês de referência selecionado acima, pra não abater do mês errado.
-                      </p>
-                    )}
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  // input[type=date] nativo mostra dd/mm ou mm/dd conforme o
+                  // idioma do NAVEGADOR/SO (não do app) — testado em produção
+                  // e o lang="pt-BR" no elemento não bastou pra garantir
+                  // dd/mm/aaaa em todo ambiente. Por isso o seletor de data
+                  // aqui é o mesmo Popover+Calendar (react-day-picker) já
+                  // usado no resto do app (ex: filtros de ContasPagar), que
+                  // formata via date-fns/ptBR e não depende do navegador.
+                  const selectedDate = parseISODate(field.value);
+                  // Em modo piso, essa data decide o mês que a entrada abate
+                  // nos Relatórios (não existe coluna separada de "mês de
+                  // referência" no banco) — por isso trava o calendário pro
+                  // "Mês de referência" acima (qualquer dia daquele mês vale,
+                  // só não deixa escapar pra outro mês). Sem essa trava, já
+                  // causou entradas de piso contadas no mês errado (ver caso
+                  // Gorete/Margarida Jul26). onSubmit confere de novo.
+                  const bounds = isFloorPayment ? getFloorMonthDateBounds(floorMonth) : null;
+                  const disabledMatcher = bounds
+                    ? { before: parseISODate(bounds.min)!, after: parseISODate(bounds.max)! }
+                    : undefined;
+
+                  return (
+                    <FormItem>
+                      <FormLabel>Data *</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className={cn(
+                                "w-full justify-start pl-10 relative font-normal",
+                                !selectedDate && "text-muted-foreground",
+                              )}
+                            >
+                              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              {selectedDate ? format(selectedDate, "dd/MM/yyyy", { locale: ptBR }) : "Selecione a data"}
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={selectedDate}
+                            onSelect={(date) => date && field.onChange(format(date, "yyyy-MM-dd"))}
+                            disabled={disabledMatcher}
+                            initialFocus
+                            locale={ptBR}
+                            className={cn("p-3 pointer-events-auto")}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      {isFloorPayment && (
+                        <p className="text-xs text-muted-foreground">
+                          Precisa ser um dia dentro do mês de referência selecionado acima, pra não abater do mês errado.
+                        </p>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               <FormField
