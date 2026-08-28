@@ -513,9 +513,25 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
                         {/* input[type=date] exibe dd/mm ou mm/dd conforme o idioma do
                             navegador/SO, não o idioma do app — lang força padrão brasileiro
                             (dd/mm/aaaa) mesmo em ambiente configurado em inglês. */}
-                        <Input type="date" lang="pt-BR" className="pl-10" {...field} />
+                        {/* Em modo piso, essa data decide o mês que a entrada abate nos
+                            Relatórios (não existe coluna separada de "mês de referência"
+                            no banco) — por isso fica travada no valor calculado a partir
+                            do "Mês de referência" acima. Editar aqui manualmente já causou
+                            entradas de piso contadas no mês errado (ver caso Gorete/Jul26). */}
+                        <Input
+                          type="date"
+                          lang="pt-BR"
+                          className="pl-10"
+                          disabled={isFloorPayment}
+                          {...field}
+                        />
                       </div>
                     </FormControl>
+                    {isFloorPayment && (
+                      <p className="text-xs text-muted-foreground">
+                        Travada no mês de referência selecionado acima, pra não abater do mês errado.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
