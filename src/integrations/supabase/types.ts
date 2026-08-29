@@ -809,6 +809,7 @@ export type Database = {
           id: string
           payment_method: string | null
           professional_id: string | null
+          reference_month: string | null
           transaction_date: string
           transaction_time: string
           type: string
@@ -822,6 +823,7 @@ export type Database = {
           id?: string
           payment_method?: string | null
           professional_id?: string | null
+          reference_month?: string | null
           transaction_date?: string
           transaction_time?: string
           type: string
@@ -835,6 +837,7 @@ export type Database = {
           id?: string
           payment_method?: string | null
           professional_id?: string | null
+          reference_month?: string | null
           transaction_date?: string
           transaction_time?: string
           type?: string

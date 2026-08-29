@@ -20,6 +20,7 @@ import {
   countCanceled,
   sumReceivedClinicCommission,
   computeFloor,
+  sumDirectFloorEntriesInRange,
 } from "@/lib/business-rules";
 
 const reportTypes = [
@@ -151,7 +152,10 @@ export default function Relatorios() {
     const endDateStr = endDate.toISOString().split("T")[0];
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-    const [appointmentsRes, transactionsRes, outflowRes, professionalsRes, paymentsRes, patientsRes, shiftsRes, settingsRes, billsInPeriodRes, billsOverdueRes, upcomingBillsRes] = await Promise.all([
+    const startMonthKey = startDateStr.slice(0, 7);
+    const endMonthKey = endDateStr.slice(0, 7);
+
+    const [appointmentsRes, transactionsRes, outflowRes, professionalsRes, paymentsRes, patientsRes, shiftsRes, settingsRes, billsInPeriodRes, billsOverdueRes, upcomingBillsRes, floorTxRes] = await Promise.all([
       supabase.from("appointments").select("*, professionals(name)").gte("appointment_date", startDateStr).lte("appointment_date", endDateStr).neq("status", "cancelado"),
       supabase.from("transactions").select("*").eq("type", "entrada").gte("transaction_date", startDateStr).lte("transaction_date", endDateStr),
       supabase.from("transactions").select("*").eq("type", "saida").gte("transaction_date", startDateStr).lte("transaction_date", endDateStr),
@@ -163,6 +167,17 @@ export default function Relatorios() {
       supabase.from("bills_to_pay").select("*").gte("due_date", startDateStr).lte("due_date", endDateStr),
       supabase.from("bills_to_pay").select("*").eq("status", "pendente").lt("due_date", todayStr),
       supabase.from("bills_to_pay").select("*").eq("status", "pendente").gte("due_date", todayStr).order("due_date", { ascending: true }).limit(10),
+      // Entradas manuais de piso (professional_id set, sem appointment_id) —
+      // consulta separada e mais ampla que a de cima, porque reference_month
+      // pode apontar pra dentro do período mesmo com transaction_date fora
+      // dele (ex: pago hoje, referente a um mês passado do período).
+      supabase
+        .from("transactions")
+        .select("professional_id, amount, appointment_id, transaction_date, reference_month")
+        .eq("type", "entrada")
+        .not("professional_id", "is", null)
+        .is("appointment_id", null)
+        .or(`and(transaction_date.gte.${startDateStr},transaction_date.lte.${endDateStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
     ]);
 
     const appointments = appointmentsRes.data || [];
@@ -246,7 +261,7 @@ export default function Relatorios() {
     // Apenas entradas SEM appointment_id contam como lançamento manual pro piso —
     // entradas vinculadas a consulta já são contabilizadas via professional_payments
     // (totalClinic/clinicRev), então incluí-las aqui duplicaria o valor.
-    const floorTransactions = transactions.filter((t: any) => t.professional_id && !t.appointment_id);
+    const floorTransactions = floorTxRes.data || [];
     const clinicRevenue = professionals.map((p) => {
       const profPayments = periodPayments.filter(pay => pay.professional_id === p.id);
       const totalClinic = sumReceivedClinicCommission(profPayments as any);
@@ -254,9 +269,11 @@ export default function Relatorios() {
       const professionalReceived = profPayments
         .filter((pay: any) => pay.is_paid === true && !["cancelado"].includes((pay.appointments?.status || "").toLowerCase()))
         .reduce((sum: number, pay: any) => sum + Number(pay.professional_amount || 0), 0);
-      const directEntries = floorTransactions
-        .filter((t: any) => t.professional_id === p.id)
-        .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+      const directEntries = sumDirectFloorEntriesInRange(
+        floorTransactions.filter((t: any) => t.professional_id === p.id) as any,
+        startMonthKey,
+        endMonthKey,
+      );
       const shifts = shiftCounts[p.id] || 0;
       const { floorTotal, gapToFloor } = computeFloor({
         shifts, floorPerShift, receivedClinicCommission: totalClinic, directEntries,
@@ -293,7 +310,11 @@ export default function Relatorios() {
       const clinicRev = sumReceivedClinicCommission(profPay as any);
       const pendingPay = profPay.filter(pay => !pay.is_paid).reduce((sum, pay) => sum + (pay.professional_amount || 0), 0);
       const totalProduced = profPay.reduce((sum, pay) => sum + (pay.total_value || 0), 0);
-      const directEntries = floorTransactions.filter((t: any) => t.professional_id === p.id).reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+      const directEntries = sumDirectFloorEntriesInRange(
+        floorTransactions.filter((t: any) => t.professional_id === p.id) as any,
+        startMonthKey,
+        endMonthKey,
+      );
       const shifts = shiftCounts[p.id] || 0;
       const { floorTotal, gapToFloor } = computeFloor({
         shifts, floorPerShift, receivedClinicCommission: clinicRev, directEntries,
@@ -712,6 +733,9 @@ export default function Relatorios() {
       const startStr = start.toISOString().split("T")[0];
       const endStr = end.toISOString().split("T")[0];
 
+      const startMonthKey = startStr.slice(0, 7);
+      const endMonthKey = endStr.slice(0, 7);
+
       const [profsRes, apptsRes, paymentsRes, txEntradaRes, txSaidaRes, shiftsRes, settingsRes] = await Promise.all([
         supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
         supabase
@@ -721,8 +745,13 @@ export default function Relatorios() {
         supabase
           .from("professional_payments")
           .select("id, appointment_id, professional_id, total_value, clinic_amount, professional_amount, is_paid, payment_destination, payment_method, appointments(appointment_date, status)"),
-        supabase.from("transactions").select("id, appointment_id, professional_id, amount, type")
-          .eq("type", "entrada").gte("transaction_date", startStr).lte("transaction_date", endStr),
+        // Inclui reference_month e amplia a busca com OR: entradas manuais de
+        // piso podem ter sido pagas fora do período (ex: hoje, quitando um
+        // mês passado), então precisam ser encontradas pelo reference_month
+        // mesmo com transaction_date fora do range — ver business-rules.ts.
+        supabase.from("transactions").select("id, appointment_id, professional_id, amount, type, transaction_date, reference_month")
+          .eq("type", "entrada")
+          .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
         supabase.from("transactions").select("id, appointment_id, professional_id, amount, type")
           .eq("type", "saida").gte("transaction_date", startStr).lte("transaction_date", endStr),
         supabase.from("professional_shifts").select("professional_id"),
@@ -796,9 +825,11 @@ export default function Relatorios() {
           .reduce((s: number, t: any) => s + (t.amount || 0), 0);
 
         // Manuais p/ piso = entradas com professional_id mas SEM appointment_id
-        const manualFloorEntries = txEntrada
-          .filter((t: any) => t.professional_id === prof.id && !t.appointment_id)
-          .reduce((s: number, t: any) => s + (t.amount || 0), 0);
+        const manualFloorEntries = sumDirectFloorEntriesInRange(
+          txEntrada.filter((t: any) => t.professional_id === prof.id) as any,
+          startMonthKey,
+          endMonthKey,
+        );
 
         const pendingClinic = Math.max(0, clinicTotal - confirmedClinic);
         const pendingProfessional = profPayments
