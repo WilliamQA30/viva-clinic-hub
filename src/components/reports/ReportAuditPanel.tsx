@@ -12,6 +12,7 @@ import {
   isCanceled,
   isClinicCommissionReceived,
   computeFloor,
+  sumDirectFloorEntriesInRange,
   REALIZED_STATUSES,
 } from "@/lib/business-rules";
 
@@ -107,6 +108,8 @@ export function ReportAuditPanel({ period, customMonth, floorPerShift }: Props) 
         const { start, end } = getPeriodRange(period, customMonth);
         const startStr = start.toISOString().split("T")[0];
         const endStr = end.toISOString().split("T")[0];
+        const startMonthKey = startStr.slice(0, 7);
+        const endMonthKey = endStr.slice(0, 7);
 
         const [profsRes, apptsRes, paymentsRes, shiftsRes, txRes] = await Promise.all([
           supabase.from("professionals").select("id, name").eq("is_active", true).order("name"),
@@ -121,12 +124,14 @@ export function ReportAuditPanel({ period, customMonth, floorPerShift }: Props) 
               "id, appointment_id, professional_id, total_value, clinic_amount, is_paid, payment_destination, appointments(appointment_date, status)",
             ),
           supabase.from("professional_shifts").select("professional_id"),
+          // Amplia com OR: entrada manual de piso pode ter reference_month
+          // dentro do período mesmo com transaction_date fora dele (ex: paga
+          // hoje, quitando um mês passado) — ver business-rules.ts.
           supabase
             .from("transactions")
-            .select("professional_id, amount, appointment_id")
+            .select("professional_id, amount, appointment_id, transaction_date, reference_month")
             .eq("type", "entrada")
-            .gte("transaction_date", startStr)
-            .lte("transaction_date", endStr),
+            .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
         ]);
 
         const profs = profsRes.data || [];
@@ -174,9 +179,11 @@ export function ReportAuditPanel({ period, customMonth, floorPerShift }: Props) 
             const receivedClinicCommission = rows
               .filter((r) => r.countedForFloor)
               .reduce((s, r) => s + r.clinicAmount, 0);
-            const directEntries = tx
-              .filter((t: any) => t.professional_id === prof.id && !t.appointment_id)
-              .reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+            const directEntries = sumDirectFloorEntriesInRange(
+              tx.filter((t: any) => t.professional_id === prof.id) as any,
+              startMonthKey,
+              endMonthKey,
+            );
             const shiftsCount = shiftCounts[prof.id] || 0;
             const floor = computeFloor({
               shifts: shiftsCount,

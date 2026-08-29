@@ -124,6 +124,61 @@ export const sumReceivedClinicCommission = (
     .filter(isClinicCommissionReceived)
     .reduce((sum, p) => sum + Number(p.clinic_amount || 0), 0);
 
+export interface DirectEntryLike {
+  professional_id?: string | null;
+  amount: number | string | null;
+  appointment_id?: string | null;
+  /** "YYYY-MM-DD" — dia real do caixa, não necessariamente o mês que a
+   * entrada quita (ver reference_month). */
+  transaction_date: string;
+  /** "YYYY-MM" — mês de piso que esta entrada manual quita, desacoplado
+   * de transaction_date. NULL em registros antigos, anteriores a essa
+   * coluna existir. */
+  reference_month?: string | null;
+}
+
+/**
+ * Uma entrada manual (sem appointment_id) conta pro piso do mês
+ * `monthKey` ("YYYY-MM") se `reference_month` bater explicitamente —
+ * ou, pra registros antigos sem essa coluna preenchida, se o mês do
+ * `transaction_date` bater (fallback que preserva o comportamento
+ * histórico, de antes de reference_month existir).
+ */
+export const matchesFloorMonth = (t: DirectEntryLike, monthKey: string): boolean =>
+  matchesFloorMonthRange(t, monthKey, monthKey);
+
+/** Mesma regra de matchesFloorMonth, mas pra um intervalo de meses
+ * ("YYYY-MM", inclusive nas duas pontas) — útil pra Relatórios com
+ * período trimestral/anual, onde o piso soma vários meses de uma vez.
+ * Comparação lexicográfica funciona porque "YYYY-MM" ordena igual a
+ * data. */
+export const matchesFloorMonthRange = (
+  t: DirectEntryLike,
+  startMonthKey: string,
+  endMonthKey: string,
+): boolean => {
+  const key = t.reference_month || norm(t.transaction_date).slice(0, 7);
+  return key >= startMonthKey && key <= endMonthKey;
+};
+
+/** Soma as entradas manuais de piso (sem appointment_id) que contam
+ * pro mês `monthKey`, usando reference_month com fallback pro mês de
+ * transaction_date. Base para `directEntries` em computeFloor. */
+export const sumDirectFloorEntries = (
+  txs: DirectEntryLike[] | null | undefined,
+  monthKey: string,
+): number => sumDirectFloorEntriesInRange(txs, monthKey, monthKey);
+
+/** Igual sumDirectFloorEntries, mas somando um intervalo de meses. */
+export const sumDirectFloorEntriesInRange = (
+  txs: DirectEntryLike[] | null | undefined,
+  startMonthKey: string,
+  endMonthKey: string,
+): number =>
+  (txs ?? [])
+    .filter((t) => !t.appointment_id && matchesFloorMonthRange(t, startMonthKey, endMonthKey))
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
 export interface FloorInput {
   shifts: number;
   floorPerShift: number;

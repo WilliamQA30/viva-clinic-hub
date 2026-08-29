@@ -33,7 +33,7 @@ import { ptBR } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCurrency } from "@/lib/validations";
-import { computeFloor, sumReceivedClinicCommission } from "@/lib/business-rules";
+import { computeFloor, sumReceivedClinicCommission, sumDirectFloorEntries } from "@/lib/business-rules";
 import { cn } from "@/lib/utils";
 import { DollarSign, Calendar, Clock, FileText, Loader2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Label } from "@/components/ui/label";
@@ -83,18 +83,6 @@ const monthNames = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
 ];
-
-/** Primeiro e último dia (formato YYYY-MM-DD) do mês "YYYY-MM" — usado
- * como min/max do input de Data no pagamento de piso, pra travar só o
- * mês (não o dia) selecionado em "Mês de referência". */
-function getFloorMonthDateBounds(month: string): { min: string; max: string } {
-  const [y, m] = month.split("-").map(Number);
-  const lastDay = new Date(y, m, 0).getDate();
-  return {
-    min: `${y}-${String(m).padStart(2, "0")}-01`,
-    max: `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
 
 export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultType = "entrada" }: TransactionFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -170,11 +158,14 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
         .eq("professional_id", profId),
       supabase
         .from("transactions")
-        .select("professional_id, amount, appointment_id")
+        .select("professional_id, amount, appointment_id, transaction_date, reference_month")
         .eq("type", "entrada")
         .eq("professional_id", profId)
-        .gte("transaction_date", startDate)
-        .lte("transaction_date", endDate),
+        // reference_month é o mês que a entrada quita de verdade — pode ter
+        // sido paga em outro dia (ex: hoje, pra quitar julho). Sem esse OR,
+        // uma entrada de piso paga fora do mês de referência nunca seria
+        // encontrada, já que o transaction_date dela não cai nesse range.
+        .or(`and(transaction_date.gte.${startDate},transaction_date.lte.${endDate}),reference_month.eq.${month}`),
     ]);
 
     const floorPerShift = parseFloat(settingsRes.data?.value || "0");
@@ -191,9 +182,9 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
     // Só entradas manuais SEM appointment_id contam — entradas vinculadas a
     // consulta já estão refletidas em clinic_amount acima; somá-las de novo
     // duplicaria o valor (era a causa da divergência com os Relatórios).
-    const directEntries = (transactionsRes.data || [])
-      .filter((t: any) => !t.appointment_id)
-      .reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+    // sumDirectFloorEntries usa reference_month (com fallback pro mês de
+    // transaction_date, pra registros antigos sem essa coluna).
+    const directEntries = sumDirectFloorEntries(transactionsRes.data as any, month);
 
     const { gapToFloor } = computeFloor({
       shifts: shiftCount,
@@ -221,22 +212,6 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
   }, [floorMonth, isFloorPayment, fetchFloorGapForProfessional, form]);
 
   const onSubmit = async (data: TransactionFormData) => {
-    // Guarda extra: mesmo com min/max no input, nada garante que todo
-    // navegador bloqueie uma data digitada fora do intervalo — então
-    // confere de novo aqui antes de salvar (é isso que decide o mês que
-    // a entrada abate nos Relatórios, ver business-rules.ts).
-    if (isFloorPayment) {
-      const { min, max } = getFloorMonthDateBounds(floorMonth);
-      if (data.transaction_date < min || data.transaction_date > max) {
-        toast({
-          title: "Data fora do mês de referência",
-          description: `A data precisa estar dentro de ${monthNames[Number(floorMonth.split("-")[1]) - 1]}/${floorMonth.split("-")[0]}, senão a entrada abate do mês errado nos Relatórios.`,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
     setIsLoading(true);
     try {
       const amountValue = parseFloat(data.amount.replace(/[^\d,]/g, "").replace(",", ".")) ||
@@ -250,6 +225,10 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
         transaction_date: data.transaction_date,
         transaction_time: data.transaction_time,
         professional_id: data.professional_id && data.professional_id !== "none" ? data.professional_id : null,
+        // Mês que essa entrada quita pro piso — desacoplado do dia real do
+        // pagamento (transaction_date), que reflete o caixa de verdade. Ver
+        // matchesFloorMonth em business-rules.ts.
+        reference_month: isFloorPayment ? floorMonth : null,
       });
 
       if (error) throw error;
@@ -294,29 +273,13 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
     }
   };
 
-  // A entrada de piso é atribuída ao mês pelo próprio `transaction_date`
-  // (não existe coluna separada de "mês de referência" no banco — ver
-  // fetchFloorGapForProfessional/business-rules.ts, que filtram
-  // directEntries por transaction_date dentro do período do mês). Por
-  // isso a data salva PRECISA cair dentro do mês de referência
-  // selecionado, senão a entrada abate do mês errado (bug real: secretária
-  // selecionava Julho, mas a data ficava travada em hoje/Agosto e a
-  // entrada contava pro piso de Agosto).
-  // Recebe o mês explicitamente em vez de ler o state `floorMonth` — ele é
-  // chamado logo após um setFloorMonth(v), e como setState é assíncrono o
-  // closure ainda veria o valor antigo.
-  const updateTransactionDateForFloorMonth = (month: string) => {
-    const [y, m] = month.split("-").map(Number);
-    const now = new Date();
-    const isCurrentMonth = y === now.getFullYear() && m === now.getMonth() + 1;
-    // Mês corrente: usa o dia de hoje (comportamento de antes). Mês
-    // passado: usa o último dia do mês de referência, pra data cair
-    // dentro do período que os Relatórios vão consultar.
-    const day = isCurrentMonth ? now.getDate() : new Date(y, m, 0).getDate();
-    const dateStr = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    form.setValue("transaction_date", dateStr);
-  };
-
+  // A data real do pagamento (transaction_date, no campo Data abaixo)
+  // fica livre — quem decide o mês que a entrada abate nos Relatórios é
+  // reference_month (gravado no onSubmit), não mais o transaction_date.
+  // Isso separa "quando o dinheiro entrou de fato" (caixa) de "qual mês
+  // de piso essa entrada quita" — antes, forçar as duas coisas no mesmo
+  // campo já causou entrada de piso datada num dia sem esse dinheiro
+  // físico (ver caso Gorete/Margarida Jul26).
   const handleFloorProfessionalChange = async (value: string, fieldOnChange: (v: string) => void) => {
     fieldOnChange(value);
     if (value && value !== "none") {
@@ -329,7 +292,6 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
           form.setValue("description", `Complemento piso - ${prof.name} - ${monthNames[m - 1]}/${y}`);
         }
       }
-      updateTransactionDateForFloorMonth(floorMonth);
     }
   };
 
@@ -413,7 +375,7 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
               <div className="space-y-4 rounded-lg border border-primary/20 p-3 bg-primary/5">
                 <div>
                   <Label className="text-sm font-medium">Mês de referência *</Label>
-                  <Select value={floorMonth} onValueChange={(v) => { setFloorMonth(v); updateTransactionDateForFloorMonth(v); }}>
+                  <Select value={floorMonth} onValueChange={setFloorMonth}>
                     <SelectTrigger className="mt-1.5">
                       <Calendar className="w-4 h-4 mr-2 text-muted-foreground" />
                       <SelectValue />
@@ -554,17 +516,6 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
                   // usado no resto do app (ex: filtros de ContasPagar), que
                   // formata via date-fns/ptBR e não depende do navegador.
                   const selectedDate = parseISODate(field.value);
-                  // Em modo piso, essa data decide o mês que a entrada abate
-                  // nos Relatórios (não existe coluna separada de "mês de
-                  // referência" no banco) — por isso trava o calendário pro
-                  // "Mês de referência" acima (qualquer dia daquele mês vale,
-                  // só não deixa escapar pra outro mês). Sem essa trava, já
-                  // causou entradas de piso contadas no mês errado (ver caso
-                  // Gorete/Margarida Jul26). onSubmit confere de novo.
-                  const bounds = isFloorPayment ? getFloorMonthDateBounds(floorMonth) : null;
-                  const disabledMatcher = bounds
-                    ? { before: parseISODate(bounds.min)!, after: parseISODate(bounds.max)! }
-                    : undefined;
 
                   return (
                     <FormItem>
@@ -590,7 +541,6 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
                             mode="single"
                             selected={selectedDate}
                             onSelect={(date) => date && field.onChange(format(date, "yyyy-MM-dd"))}
-                            disabled={disabledMatcher}
                             initialFocus
                             locale={ptBR}
                             className={cn("p-3 pointer-events-auto")}
@@ -599,7 +549,7 @@ export function TransactionFormDialog({ open, onOpenChange, onSuccess, defaultTy
                       </Popover>
                       {isFloorPayment && (
                         <p className="text-xs text-muted-foreground">
-                          Precisa ser um dia dentro do mês de referência selecionado acima, pra não abater do mês errado.
+                          Dia real em que o dinheiro entrou — o mês que a entrada abate no piso é o "Mês de referência" selecionado acima, não precisa bater com essa data.
                         </p>
                       )}
                       <FormMessage />
