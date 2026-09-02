@@ -280,7 +280,13 @@ export default function Relatorios() {
       });
       return {
         name: p.name.split(" ").slice(0, 2).join(" "),
-        valor: totalClinic, professionalReceived, consultas: profPayments.length, totalProduced, floorTotal, gapToFloor, shifts,
+        // Receita Clínica = comissão das consultas + complementos de piso
+        // pagos manualmente (directEntries) — sem isso, um "Complemento
+        // piso" lançado no Financeiro não aparecia aqui, mesmo sendo
+        // dinheiro que entrou de fato pra clínica por causa dessa
+        // profissional.
+        valor: totalClinic + directEntries,
+        professionalReceived, consultas: profPayments.length, totalProduced, floorTotal, gapToFloor, shifts,
       };
     }).filter(p => p.valor > 0 || p.shifts > 0 || p.professionalReceived > 0).sort((a, b) => b.valor - a.valor);
     setClinicRevenueByProfessional(clinicRevenue);
@@ -321,7 +327,12 @@ export default function Relatorios() {
       });
       return {
         name: p.name.split(" ").slice(0, 2).join(" "), fullName: p.name,
-        total: profAppts.length, completed, canceled, clinicRevenue: clinicRev, pendingPayments: pendingPay,
+        total: profAppts.length, completed, canceled,
+        // Igual ao "valor" da tabela de cima: comissão das consultas +
+        // complementos de piso pagos manualmente, senão o Financeiro
+        // registrando o pagamento do piso não refletia aqui.
+        clinicRevenue: clinicRev + directEntries,
+        pendingPayments: pendingPay,
         totalProduced, floorTotal, gapToFloor,
         cancelRate: profAppts.length > 0 ? ((canceled / profAppts.length) * 100).toFixed(1) : "0",
       };
@@ -641,10 +652,22 @@ export default function Relatorios() {
           ]),
         });
       } else if (reportId === "professionals") {
-        const [profsRes, apptsRes, paymentsRes] = await Promise.all([
+        const startMonthKey = startStr.slice(0, 7);
+        const endMonthKey = endStr.slice(0, 7);
+        const [profsRes, apptsRes, paymentsRes, floorTxRes] = await Promise.all([
           supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
           supabase.from("appointments").select("id, professional_id, status").gte("appointment_date", startStr).lte("appointment_date", endStr),
-          supabase.from("professional_payments").select("professional_id, clinic_amount, professional_amount, total_value, appointments(appointment_date, status)"),
+          supabase.from("professional_payments").select("professional_id, clinic_amount, professional_amount, total_value, is_paid, payment_destination, appointments(appointment_date, status)"),
+          // Mesmo padrão usado no resto do arquivo: entradas manuais de piso
+          // contam via reference_month, com fallback pro mês de
+          // transaction_date — ver business-rules.ts.
+          supabase
+            .from("transactions")
+            .select("professional_id, amount, appointment_id, transaction_date, reference_month")
+            .eq("type", "entrada")
+            .not("professional_id", "is", null)
+            .is("appointment_id", null)
+            .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
         ]);
         const profs = profsRes.data || [];
         const appts = apptsRes.data || [];
@@ -653,10 +676,19 @@ export default function Relatorios() {
           const d = p.appointments?.appointment_date;
           return d && d >= startStr && d <= endStr;
         });
+        const floorTransactions = floorTxRes.data || [];
         const rows = profs.map((p: any) => {
           const profAppts = appts.filter((a: any) => a.professional_id === p.id);
           const pays = periodPayments.filter((pp: any) => pp.professional_id === p.id);
-          const clinicTotal = pays.reduce((s: number, x: any) => s + (x.clinic_amount || 0), 0);
+          // sumReceivedClinicCommission (não a soma crua de clinic_amount) +
+          // complementos de piso pagos manualmente — mesma regra usada no
+          // resto do relatório, pra não voltar a divergir da tela principal.
+          const directEntries = sumDirectFloorEntriesInRange(
+            floorTransactions.filter((t: any) => t.professional_id === p.id) as any,
+            startMonthKey,
+            endMonthKey,
+          );
+          const clinicTotal = sumReceivedClinicCommission(pays as any) + directEntries;
           const profTotal = pays.reduce((s: number, x: any) => s + (x.professional_amount || 0), 0);
           return [
             p.name,
@@ -668,7 +700,7 @@ export default function Relatorios() {
         }).filter((r) => Number(r[2]) > 0);
 
         const totalConsultas = rows.reduce((s, r) => s + Number(r[2]), 0);
-        const totalClinic = periodPayments.reduce((s: number, x: any) => s + (x.clinic_amount || 0), 0);
+        const totalClinic = sumReceivedClinicCommission(periodPayments as any) + sumDirectFloorEntriesInRange(floorTransactions as any, startMonthKey, endMonthKey);
         const totalProf = periodPayments.reduce((s: number, x: any) => s + (x.professional_amount || 0), 0);
 
         setPreviewData({
@@ -1080,7 +1112,7 @@ export default function Relatorios() {
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Pisos Optantes</th>
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Consultas</th>
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Valor p/ atingir piso</th>
-                        <th className="text-right p-3 text-sm font-medium text-muted-foreground">Receita Clínica</th>
+                        <th className="text-right p-3 text-sm font-medium text-muted-foreground" title="Comissão das consultas + complementos de piso pagos manualmente pela profissional">Receita Clínica</th>
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Receita Profissional</th>
                       </tr>
                     </thead>
@@ -1157,8 +1189,8 @@ export default function Relatorios() {
                         <th className="text-center p-3 text-sm font-medium text-muted-foreground">Canceladas</th>
                         <th className="text-center p-3 text-sm font-medium text-muted-foreground">% Cancel.</th>
                         <th className="text-right p-3 text-sm font-medium text-muted-foreground">Valor p/ piso</th>
-                        <th className="text-right p-3 text-sm font-medium text-muted-foreground">Receita Clínica</th>
-                        <th className="text-right p-3 text-sm font-medium text-muted-foreground">Pendente</th>
+                        <th className="text-right p-3 text-sm font-medium text-muted-foreground" title="Comissão das consultas + complementos de piso pagos manualmente pela profissional">Receita Clínica</th>
+                        <th className="text-right p-3 text-sm font-medium text-muted-foreground" title="Valor que a clínica ainda deve repassar à profissional por consultas já realizadas">Repasse Pendente</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1438,7 +1470,7 @@ export default function Relatorios() {
                                   <th className="text-right p-3 font-semibold">Pisos Optantes</th>
                                   <th className="text-right p-3 font-semibold">Consultas</th>
                                   <th className="text-right p-3 font-semibold">Valor p/ atingir piso</th>
-                                  <th className="text-right p-3 font-semibold">Receita Clínica</th>
+                                  <th className="text-right p-3 font-semibold" title="Comissão das consultas + complementos de piso pagos manualmente pela profissional">Receita Clínica</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -1481,8 +1513,8 @@ export default function Relatorios() {
                                   <th className="text-center p-3 font-semibold">Canceladas</th>
                                   <th className="text-center p-3 font-semibold">% Cancel.</th>
                                   <th className="text-right p-3 font-semibold">Valor p/ piso</th>
-                                  <th className="text-right p-3 font-semibold">Receita Clínica</th>
-                                  <th className="text-right p-3 font-semibold">Pendente</th>
+                                  <th className="text-right p-3 font-semibold" title="Comissão das consultas + complementos de piso pagos manualmente pela profissional">Receita Clínica</th>
+                                  <th className="text-right p-3 font-semibold" title="Valor que a clínica ainda deve repassar à profissional por consultas já realizadas">Repasse Pendente</th>
                                 </tr>
                               </thead>
                               <tbody>
