@@ -12,6 +12,7 @@ import {
   Legend,
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import { format, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, eachWeekOfInterval, eachMonthOfInterval, parseISO, startOfWeek, endOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -122,11 +123,11 @@ export function RevenueChart({ filterPeriod = "month", dateFrom, dateTo }: Reven
           for (const month of months) {
             const start = format(startOfMonth(month), "yyyy-MM-dd");
             const end = format(endOfMonth(month), "yyyy-MM-dd");
-            const { data: transactions } = await supabase
+            const { data: transactions } = await fetchAll(() => supabase
               .from("transactions")
               .select("amount, type")
               .gte("transaction_date", start)
-              .lte("transaction_date", end);
+              .lte("transaction_date", end));
 
             const receita = transactions?.filter((t) => t.type === "entrada").reduce((sum, t) => sum + Number(t.amount), 0) || 0;
             const despesa = transactions?.filter((t) => t.type === "saida").reduce((sum, t) => sum + Number(t.amount), 0) || 0;
@@ -142,22 +143,22 @@ export function RevenueChart({ filterPeriod = "month", dateFrom, dateTo }: Reven
           setData(chartData);
         }
       } else if (filterPeriod === "year") {
-        // Year - show 12 months of the current year
+        // Year - jan a dez do ano atual (mesmo período do card "este ano")
         const today = new Date();
         const months: ChartData[] = [];
 
-        for (let i = 11; i >= 0; i--) {
-          const date = subMonths(today, i);
+        for (let i = 0; i < 12; i++) {
+          const date = new Date(today.getFullYear(), i, 1);
           const start = format(startOfMonth(date), "yyyy-MM-dd");
           const end = format(endOfMonth(date), "yyyy-MM-dd");
           const monthName = format(date, "MMM", { locale: ptBR });
           const monthFull = format(date, "MMMM yyyy", { locale: ptBR });
 
-          const { data: transactions } = await supabase
+          const { data: transactions } = await fetchAll(() => supabase
             .from("transactions")
             .select("amount, type")
             .gte("transaction_date", start)
-            .lte("transaction_date", end);
+            .lte("transaction_date", end));
 
           const receita = transactions?.filter((t) => t.type === "entrada").reduce((sum, t) => sum + Number(t.amount), 0) || 0;
           const despesa = transactions?.filter((t) => t.type === "saida").reduce((sum, t) => sum + Number(t.amount), 0) || 0;
@@ -181,11 +182,11 @@ export function RevenueChart({ filterPeriod = "month", dateFrom, dateTo }: Reven
         const startStr = format(monthStart, "yyyy-MM-dd");
         const endStr = format(monthEnd, "yyyy-MM-dd");
 
-        const { data: transactions } = await supabase
+        const { data: transactions } = await fetchAll(() => supabase
           .from("transactions")
           .select("amount, type, transaction_date")
           .gte("transaction_date", startStr)
-          .lte("transaction_date", endStr);
+          .lte("transaction_date", endStr));
 
         const chartData: ChartData[] = days.map((day) => {
           const dayStr = format(day, "yyyy-MM-dd");
