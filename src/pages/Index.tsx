@@ -20,6 +20,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import { countRealized, countCanceled, sumReceivedRevenue, isRealized } from "@/lib/business-rules";
 import { format, startOfMonth, endOfMonth, subMonths, startOfWeek, endOfWeek, startOfYear, endOfYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -103,11 +104,11 @@ const Index = () => {
       const { start, end, prevStart, prevEnd } = getDateRange();
 
       // Fetch appointments for the selected period (not just today)
-      const { data: periodAppts } = await supabase
+      const { data: periodAppts } = await fetchAll(() => supabase
         .from("appointments")
         .select("status")
         .gte("appointment_date", start)
-        .lte("appointment_date", end);
+        .lte("appointment_date", end));
 
       // Regras unificadas via motor (src/lib/business-rules.ts):
       //  - "confirmedPeriod" agora significa consultas REALIZADAS (atendido/concluido).
@@ -133,21 +134,21 @@ const Index = () => {
         .lte("created_at", end);
 
       // This period's revenue
-      const { data: thisMonthTransactions } = await supabase
+      const { data: thisMonthTransactions } = await fetchAll(() => supabase
         .from("transactions")
         .select("amount, type")
         .gte("transaction_date", start)
-        .lte("transaction_date", end);
+        .lte("transaction_date", end));
 
       // Faturamento RECEBIDO (caixa) — motor único.
       const monthlyRevenue = sumReceivedRevenue(thisMonthTransactions || []);
 
       // Previous period's revenue for comparison
-      const { data: lastMonthTransactions } = await supabase
+      const { data: lastMonthTransactions } = await fetchAll(() => supabase
         .from("transactions")
         .select("amount, type")
         .gte("transaction_date", prevStart)
-        .lte("transaction_date", prevEnd);
+        .lte("transaction_date", prevEnd));
 
       const lastMonthRevenue = sumReceivedRevenue(lastMonthTransactions || []);
 
@@ -156,19 +157,19 @@ const Index = () => {
         : 0;
 
       // Calculate occupancy rate (appointments vs available slots)
-      const { data: thisMonthAppts } = await supabase
+      const { data: thisMonthAppts } = await fetchAll(() => supabase
         .from("appointments")
         .select("id")
         .gte("appointment_date", start)
         .lte("appointment_date", end)
-        .neq("status", "cancelado");
+        .neq("status", "cancelado"));
 
-      const { data: lastMonthAppts } = await supabase
+      const { data: lastMonthAppts } = await fetchAll(() => supabase
         .from("appointments")
         .select("id")
         .gte("appointment_date", prevStart)
         .lte("appointment_date", prevEnd)
-        .neq("status", "cancelado");
+        .neq("status", "cancelado"));
 
       // Assuming ~20 working days * ~16 slots = 320 possible slots per month
       const maxSlots = 320;

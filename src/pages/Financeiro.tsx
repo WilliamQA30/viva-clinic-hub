@@ -38,6 +38,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import { useToast } from "@/hooks/use-toast";
 import { TransactionFormDialog } from "@/components/financial/TransactionFormDialog";
 import { TransactionDeleteDialog, DeletableTransaction } from "@/components/financial/TransactionDeleteDialog";
@@ -125,21 +126,21 @@ export default function Financeiro() {
     
     switch (filterPeriod) {
       case "today":
-        return { start: today.toISOString().split("T")[0], end: today.toISOString().split("T")[0] };
+        return { start: format(today, "yyyy-MM-dd"), end: format(today, "yyyy-MM-dd") };
       case "week":
         const weekStart = new Date(today);
         weekStart.setDate(today.getDate() - 6);
-        return { start: weekStart.toISOString().split("T")[0], end: today.toISOString().split("T")[0] };
+        return { start: format(weekStart, "yyyy-MM-dd"), end: format(today, "yyyy-MM-dd") };
       case "month":
         const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
         const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0); // Last day of current month
-        return { start: monthStart.toISOString().split("T")[0], end: monthEnd.toISOString().split("T")[0] };
+        return { start: format(monthStart, "yyyy-MM-dd"), end: format(monthEnd, "yyyy-MM-dd") };
       case "year":
         const yearStart = new Date(today.getFullYear(), 0, 1);
         const yearEnd = new Date(today.getFullYear(), 11, 31); // Last day of current year
-        return { start: yearStart.toISOString().split("T")[0], end: yearEnd.toISOString().split("T")[0] };
+        return { start: format(yearStart, "yyyy-MM-dd"), end: format(yearEnd, "yyyy-MM-dd") };
       default:
-        return { start: today.toISOString().split("T")[0], end: today.toISOString().split("T")[0] };
+        return { start: format(today, "yyyy-MM-dd"), end: format(today, "yyyy-MM-dd") };
     }
   };
 
@@ -147,7 +148,7 @@ export default function Financeiro() {
     setIsLoading(true);
     const { start, end } = getDateRange();
     
-    const { data, error } = await supabase
+    const { data, error } = await fetchAll(() => supabase
       .from("transactions")
       .select(`
         *,
@@ -161,7 +162,7 @@ export default function Financeiro() {
       .gte("transaction_date", start)
       .lte("transaction_date", end)
       .order("transaction_date", { ascending: false })
-      .order("transaction_time", { ascending: false });
+      .order("transaction_time", { ascending: false }));
 
     if (error) {
       toast({
@@ -179,12 +180,12 @@ export default function Financeiro() {
     const { start, end } = getDateRange();
 
     // Confirmed appointments (excluding cancellations/non-charged absences) within the period
-    const { data: apptsRaw, error } = await supabase
+    const { data: apptsRaw, error } = await fetchAll(() => supabase
       .from("appointments")
       .select("id, status, consultation_value, payment_status, no_show_charged")
       .gte("appointment_date", start)
       .lte("appointment_date", end)
-      .in("status", ["confirmado", "concluido", "atendido", "cliente_faltou"]);
+      .in("status", ["confirmado", "concluido", "atendido", "cliente_faltou"]));
 
     if (error || !apptsRaw) {
       setAppointmentStats({ confirmed: 0, paid: 0, free: 0, clientReceivable: 0, professionalReceivable: 0 });
@@ -212,14 +213,15 @@ export default function Financeiro() {
     // and clinic still has commission to receive (payment_destination = 'professional', is_paid = false)
     const apptIds = appts.map((a) => a.id);
     let professionalReceivable = 0;
-    if (apptIds.length > 0) {
+    // Em lotes: no filtro "Ano" a lista de ids estoura o tamanho máximo da URL.
+    for (let i = 0; i < apptIds.length; i += 150) {
       const { data: profPayments } = await supabase
         .from("professional_payments")
         .select("appointment_id, payment_destination, is_paid")
-        .in("appointment_id", apptIds)
+        .in("appointment_id", apptIds.slice(i, i + 150))
         .eq("payment_destination", "professional")
         .eq("is_paid", false);
-      professionalReceivable = profPayments?.length || 0;
+      professionalReceivable += profPayments?.length || 0;
     }
 
     setAppointmentStats({ confirmed, paid, free, clientReceivable, professionalReceivable });

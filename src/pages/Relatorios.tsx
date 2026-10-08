@@ -297,8 +297,9 @@ export default function Relatorios() {
       const monthPayments = allPayments.filter(pay => {
         const apptDate = pay.appointments?.appointment_date;
         if (!apptDate) return false;
-        const date = new Date(apptDate);
-        return date.getMonth() === idx && date.getFullYear() === currentYear;
+        // Compara pela string: new Date("YYYY-MM-DD") é UTC e, no fuso do
+        // Brasil, jogava o dia 1º de cada mês pro mês anterior.
+        return apptDate.slice(0, 7) === `${currentYear}-${String(idx + 1).padStart(2, "0")}`;
       });
       const clinicTotal = monthPayments.reduce((sum, pay) => sum + (pay.clinic_amount || 0), 0);
       return { month, clinica: clinicTotal };
