@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,16 +114,16 @@ export function ReportAuditPanel({ period, customMonth, floorPerShift }: Props) 
 
         const [profsRes, apptsRes, paymentsRes, shiftsRes, txRes] = await Promise.all([
           supabase.from("professionals").select("id, name").eq("is_active", true).order("name"),
-          supabase
+          fetchAll(() => supabase
             .from("appointments")
             .select("id, appointment_date, professional_id, status, consultation_value, patients(name)")
             .gte("appointment_date", startStr)
-            .lte("appointment_date", endStr),
-          supabase
+            .lte("appointment_date", endStr)),
+          fetchAll(() => supabase
             .from("professional_payments")
             .select(
               "id, appointment_id, professional_id, total_value, clinic_amount, is_paid, payment_destination, appointments(appointment_date, status)",
-            ),
+            )),
           supabase.from("professional_shifts").select("professional_id"),
           // Amplia com OR: entrada manual de piso pode ter reference_month
           // dentro do período mesmo com transaction_date fora dele (ex: paga

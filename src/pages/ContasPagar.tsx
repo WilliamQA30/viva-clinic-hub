@@ -209,7 +209,7 @@ export default function ContasPagar() {
     if (selectedBill && showFormDialog) {
       form.reset({
         description: selectedBill.description,
-        amount: selectedBill.amount.toString(),
+        amount: formatCurrency(Number(selectedBill.amount)),
         due_date: selectedBill.due_date,
         category: selectedBill.category || "",
         notes: selectedBill.notes || "",
@@ -372,7 +372,7 @@ export default function ContasPagar() {
 
       form.reset({
         description: recurring.description,
-        amount: recurring.amount.toString(),
+        amount: formatCurrency(Number(recurring.amount)),
         due_date: selectedBill.due_date,
         category: recurring.category || "",
         notes: recurring.notes || "",
@@ -393,7 +393,7 @@ export default function ContasPagar() {
   const handleEditRecurringRule = (recurring: RecurringBill) => {
     form.reset({
       description: recurring.description,
-      amount: recurring.amount.toString(),
+      amount: formatCurrency(Number(recurring.amount)),
       due_date: "",
       category: recurring.category || "",
       notes: recurring.notes || "",

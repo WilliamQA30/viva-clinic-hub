@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import {
   Search,
   Loader2,
@@ -97,7 +98,7 @@ export function ClientReceivablesTab() {
   const fetchPendingAppointments = async () => {
     setIsLoading(true);
 
-    const { data, error } = await supabase
+    const { data, error } = await fetchAll(() => supabase
       .from("appointments")
       .select(`
         id,
@@ -120,7 +121,7 @@ export function ClientReceivablesTab() {
       `)
       .in("status", ["confirmado", "concluido", "atendido", "cliente_faltou"])
       .order("appointment_date", { ascending: false })
-      .order("appointment_time", { ascending: false });
+      .order("appointment_time", { ascending: false }));
 
     if (error) {
       toast({
