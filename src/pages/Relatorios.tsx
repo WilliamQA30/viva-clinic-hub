@@ -7,6 +7,7 @@ import { FileText, Calendar, DollarSign, Users, UserCog, TrendingUp, Loader2, Bu
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from "recharts";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import { useToast } from "@/hooks/use-toast";
 import { exportToPDF, formatDateBR, formatCurrencyBR } from "@/lib/export-utils";
 import { exportFinancialPDF } from "@/lib/export-financial-pdf";
@@ -156,11 +157,11 @@ export default function Relatorios() {
     const endMonthKey = endDateStr.slice(0, 7);
 
     const [appointmentsRes, transactionsRes, outflowRes, professionalsRes, paymentsRes, patientsRes, shiftsRes, settingsRes, billsInPeriodRes, billsOverdueRes, upcomingBillsRes, floorTxRes] = await Promise.all([
-      supabase.from("appointments").select("*, professionals(name)").gte("appointment_date", startDateStr).lte("appointment_date", endDateStr).neq("status", "cancelado"),
-      supabase.from("transactions").select("*").eq("type", "entrada").gte("transaction_date", startDateStr).lte("transaction_date", endDateStr),
-      supabase.from("transactions").select("*").eq("type", "saida").gte("transaction_date", startDateStr).lte("transaction_date", endDateStr),
+      fetchAll(() => supabase.from("appointments").select("*, professionals(name)").gte("appointment_date", startDateStr).lte("appointment_date", endDateStr).neq("status", "cancelado")),
+      fetchAll(() => supabase.from("transactions").select("*").eq("type", "entrada").gte("transaction_date", startDateStr).lte("transaction_date", endDateStr)),
+      fetchAll(() => supabase.from("transactions").select("*").eq("type", "saida").gte("transaction_date", startDateStr).lte("transaction_date", endDateStr)),
       supabase.from("professionals").select("id, name").eq("is_active", true),
-      supabase.from("professional_payments").select("*, professionals(name), appointments(status, appointment_date)").gte("created_at", `${currentYear}-01-01`),
+      fetchAll(() => supabase.from("professional_payments").select("*, professionals(name), appointments(status, appointment_date)").gte("created_at", `${currentYear}-01-01`)),
       supabase.from("patients").select("id").eq("is_active", true),
       supabase.from("professional_shifts").select("professional_id"),
       supabase.from("clinic_settings").select("value").eq("key", "floor_value_per_shift").maybeSingle(),
@@ -171,13 +172,13 @@ export default function Relatorios() {
       // consulta separada e mais ampla que a de cima, porque reference_month
       // pode apontar pra dentro do período mesmo com transaction_date fora
       // dele (ex: pago hoje, referente a um mês passado do período).
-      supabase
+      fetchAll(() => supabase
         .from("transactions")
         .select("professional_id, amount, appointment_id, transaction_date, reference_month")
         .eq("type", "entrada")
         .not("professional_id", "is", null)
         .is("appointment_id", null)
-        .or(`and(transaction_date.gte.${startDateStr},transaction_date.lte.${endDateStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
+        .or(`and(transaction_date.gte.${startDateStr},transaction_date.lte.${endDateStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`)),
     ]);
 
     const appointments = appointmentsRes.data || [];
@@ -305,7 +306,7 @@ export default function Relatorios() {
     setMonthlyRevenueData(monthlyData);
 
     // Professional performance
-    const { data: allAppointmentsData } = await supabase.from("appointments").select("*").gte("appointment_date", startDateStr).lte("appointment_date", endDateStr);
+    const { data: allAppointmentsData } = await fetchAll(() => supabase.from("appointments").select("*").gte("appointment_date", startDateStr).lte("appointment_date", endDateStr));
     const allAppointments = allAppointmentsData || [];
     
     const perfData = professionals.map((p) => {
@@ -411,18 +412,18 @@ export default function Relatorios() {
 
         const todayStrPrev = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
         const [txRes, txPrevRes, apptsRes, receivablesRes, profPaymentsRes, billsInPeriodRes, billsOverdueRes] = await Promise.all([
-          supabase.from("transactions").select("*").gte("transaction_date", startStr).lte("transaction_date", endStr).order("transaction_date", { ascending: false }),
-          supabase.from("transactions").select("type, amount, transaction_date").gte("transaction_date", prevStartStr).lte("transaction_date", prevEndStr),
-          supabase.from("appointments")
+          fetchAll(() => supabase.from("transactions").select("*").gte("transaction_date", startStr).lte("transaction_date", endStr).order("transaction_date", { ascending: false })),
+          fetchAll(() => supabase.from("transactions").select("type, amount, transaction_date").gte("transaction_date", prevStartStr).lte("transaction_date", prevEndStr)),
+          fetchAll(() => supabase.from("appointments")
             .select("id, status, appointment_date, consultation_value, payment_status, no_show_charged")
-            .gte("appointment_date", startStr).lte("appointment_date", endStr),
+            .gte("appointment_date", startStr).lte("appointment_date", endStr)),
           // Fonte de verdade: mesma query da aba Financeiro → Receber de Clientes (sem filtro de período)
-          supabase.from("appointments")
+          fetchAll(() => supabase.from("appointments")
             .select("id, consultation_value, payment_status, status, no_show_charged")
-            .in("status", ["confirmado", "concluido", "atendido", "cliente_faltou"]),
+            .in("status", ["confirmado", "concluido", "atendido", "cliente_faltou"])),
           // Fonte de verdade: mesma query das abas Financeiro → Pagar/Receber Profissionais
-          supabase.from("professional_payments")
-            .select("professional_id, professional_amount, clinic_amount, is_paid, payment_destination, appointments(status)"),
+          fetchAll(() => supabase.from("professional_payments")
+            .select("professional_id, professional_amount, clinic_amount, is_paid, payment_destination, appointments(status)")),
           // Contas a pagar — fonte de verdade para Despesas por Categoria
           supabase.from("bills_to_pay").select("*").gte("due_date", startStr).lte("due_date", endStr),
           supabase.from("bills_to_pay").select("*").eq("status", "pendente").lt("due_date", todayStrPrev),
@@ -602,11 +603,11 @@ export default function Relatorios() {
           },
         });
       } else if (reportId === "appointments") {
-        const { data } = await supabase
+        const { data } = await fetchAll(() => supabase
           .from("appointments")
           .select("*, patients(name), professionals(name)")
           .gte("appointment_date", startStr).lte("appointment_date", endStr)
-          .order("appointment_date", { ascending: false });
+          .order("appointment_date", { ascending: false }));
         const list = data || [];
         const confirmed = countRealized(list);
         const pending = list.filter((a: any) => (a.status || "").toLowerCase() === "agendado").length;
@@ -656,18 +657,18 @@ export default function Relatorios() {
         const endMonthKey = endStr.slice(0, 7);
         const [profsRes, apptsRes, paymentsRes, floorTxRes] = await Promise.all([
           supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
-          supabase.from("appointments").select("id, professional_id, status").gte("appointment_date", startStr).lte("appointment_date", endStr),
-          supabase.from("professional_payments").select("professional_id, clinic_amount, professional_amount, total_value, is_paid, payment_destination, appointments(appointment_date, status)"),
+          fetchAll(() => supabase.from("appointments").select("id, professional_id, status").gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
+          fetchAll(() => supabase.from("professional_payments").select("professional_id, clinic_amount, professional_amount, total_value, is_paid, payment_destination, appointments(appointment_date, status)")),
           // Mesmo padrão usado no resto do arquivo: entradas manuais de piso
           // contam via reference_month, com fallback pro mês de
           // transaction_date — ver business-rules.ts.
-          supabase
+          fetchAll(() => supabase
             .from("transactions")
             .select("professional_id, amount, appointment_id, transaction_date, reference_month")
             .eq("type", "entrada")
             .not("professional_id", "is", null)
             .is("appointment_id", null)
-            .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
+            .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`)),
         ]);
         const profs = profsRes.data || [];
         const appts = apptsRes.data || [];
@@ -735,7 +736,7 @@ export default function Relatorios() {
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
       const [txRes, billsInPeriodRes, billsOverdueRes] = await Promise.all([
-        supabase.from("transactions").select("*").gte("transaction_date", startStr).lte("transaction_date", endStr).order("transaction_date", { ascending: true }),
+        fetchAll(() => supabase.from("transactions").select("*").gte("transaction_date", startStr).lte("transaction_date", endStr).order("transaction_date", { ascending: true })),
         supabase.from("bills_to_pay").select("*").gte("due_date", startStr).lte("due_date", endStr).order("due_date", { ascending: true }),
         supabase.from("bills_to_pay").select("*").eq("status", "pendente").lt("due_date", startStr).lt("due_date", todayStr).order("due_date", { ascending: true }),
       ]);
@@ -770,22 +771,22 @@ export default function Relatorios() {
 
       const [profsRes, apptsRes, paymentsRes, txEntradaRes, txSaidaRes, shiftsRes, settingsRes] = await Promise.all([
         supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
-        supabase
+        fetchAll(() => supabase
           .from("appointments")
           .select("id, appointment_date, professional_id, patient_id, consultation_value, clinic_percentage, payment_method, payment_status, status, patients(name)")
-          .gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado"),
-        supabase
+          .gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
+        fetchAll(() => supabase
           .from("professional_payments")
-          .select("id, appointment_id, professional_id, total_value, clinic_amount, professional_amount, is_paid, payment_destination, payment_method, appointments(appointment_date, status)"),
+          .select("id, appointment_id, professional_id, total_value, clinic_amount, professional_amount, is_paid, payment_destination, payment_method, appointments(appointment_date, status)")),
         // Inclui reference_month e amplia a busca com OR: entradas manuais de
         // piso podem ter sido pagas fora do período (ex: hoje, quitando um
         // mês passado), então precisam ser encontradas pelo reference_month
         // mesmo com transaction_date fora do range — ver business-rules.ts.
-        supabase.from("transactions").select("id, appointment_id, professional_id, amount, type, transaction_date, reference_month")
+        fetchAll(() => supabase.from("transactions").select("id, appointment_id, professional_id, amount, type, transaction_date, reference_month")
           .eq("type", "entrada")
-          .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`),
-        supabase.from("transactions").select("id, appointment_id, professional_id, amount, type")
-          .eq("type", "saida").gte("transaction_date", startStr).lte("transaction_date", endStr),
+          .or(`and(transaction_date.gte.${startStr},transaction_date.lte.${endStr}),and(reference_month.gte.${startMonthKey},reference_month.lte.${endMonthKey})`)),
+        fetchAll(() => supabase.from("transactions").select("id, appointment_id, professional_id, amount, type")
+          .eq("type", "saida").gte("transaction_date", startStr).lte("transaction_date", endStr)),
         supabase.from("professional_shifts").select("professional_id"),
         supabase.from("clinic_settings").select("value").eq("key", "floor_value_per_shift").maybeSingle(),
       ]);

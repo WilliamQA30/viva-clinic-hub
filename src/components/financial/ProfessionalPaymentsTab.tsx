@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAll } from "@/lib/fetch-all";
 import { 
   Search, 
   Loader2, 
@@ -156,7 +157,7 @@ export function ProfessionalPaymentsTab() {
   const fetchPayments = async () => {
     setIsLoading(true);
     
-    const { data: paymentsData, error: paymentsError } = await supabase
+    const { data: paymentsData, error: paymentsError } = await fetchAll(() => supabase
       .from("professional_payments")
       .select(`
         *,
@@ -167,7 +168,7 @@ export function ProfessionalPaymentsTab() {
           patients (name)
         )
       `)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false }));
 
     if (paymentsError) {
       toast({
@@ -201,9 +202,9 @@ export function ProfessionalPaymentsTab() {
 
     if (!error && data) {
       // Fetch all payments with appointment status and payment_destination
-      const { data: paymentsData } = await supabase
+      const { data: paymentsData } = await fetchAll(() => supabase
         .from("professional_payments")
-        .select("professional_id, professional_amount, clinic_amount, is_paid, appointment_id, payment_destination, appointments(status)");
+        .select("professional_id, professional_amount, clinic_amount, is_paid, appointment_id, payment_destination, appointments(status)"));
 
       // Filter out cancelled appointments
       const validPayments = (paymentsData || []).filter(
