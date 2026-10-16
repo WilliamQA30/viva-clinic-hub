@@ -226,16 +226,25 @@ export const countNoShows = (appts: AppointmentLike[] | null | undefined): numbe
 export interface SessionLike {
   status?: string | null;
   no_show_charged?: boolean | null;
+  /** "YYYY-MM-DD" — consulta futura (depois de hoje) ainda não conta. */
+  appointment_date?: string | null;
 }
+
+const localToday = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 /**
  * Sessão que conta na quantidade de consultas da profissional — igual à
  * "Qtd Sessões" da planilha de controle: entra qualquer consulta não
  * cancelada, INCLUSIVE social (valor 0) e sessões de pacote já quitado,
  * que não geram professional_payments. Falta do profissional e falta do
- * cliente não cobrada não contam.
+ * cliente não cobrada não contam, nem consulta com data depois de hoje
+ * (no mês corrente, a agenda já tem as próximas semanas marcadas).
  */
 export const isCountedSession = (a: SessionLike): boolean => {
+  if (a.appointment_date && a.appointment_date.slice(0, 10) > localToday()) return false;
   const s = norm(a.status).toLowerCase();
   if (s === "cancelado" || s === "profissional_faltou" || s === "profissional faltou") return false;
   if (s === "cliente_faltou" || s === "cliente faltou" || s === "faltou") return a.no_show_charged === true;
