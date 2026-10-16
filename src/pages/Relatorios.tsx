@@ -664,7 +664,7 @@ export default function Relatorios() {
         const endMonthKey = endStr.slice(0, 7);
         const [profsRes, apptsRes, paymentsRes, floorTxRes] = await Promise.all([
           supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
-          fetchAll(() => supabase.from("appointments").select("id, professional_id, status, no_show_charged").gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
+          fetchAll(() => supabase.from("appointments").select("id, professional_id, status, no_show_charged, appointment_date").gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
           fetchAll(() => supabase.from("professional_payments").select("professional_id, clinic_amount, professional_amount, total_value, is_paid, payment_destination, appointments(appointment_date, status)")),
           // Mesmo padrão usado no resto do arquivo: entradas manuais de piso
           // contam via reference_month, com fallback pro mês de
