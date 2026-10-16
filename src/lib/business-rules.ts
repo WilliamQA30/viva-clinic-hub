@@ -222,3 +222,25 @@ export const countCanceled = (appts: AppointmentLike[] | null | undefined): numb
 
 export const countNoShows = (appts: AppointmentLike[] | null | undefined): number =>
   (appts ?? []).filter((a) => isNoShow(a.status)).length;
+
+export interface SessionLike {
+  status?: string | null;
+  no_show_charged?: boolean | null;
+}
+
+/**
+ * Sessão que conta na quantidade de consultas da profissional — igual à
+ * "Qtd Sessões" da planilha de controle: entra qualquer consulta não
+ * cancelada, INCLUSIVE social (valor 0) e sessões de pacote já quitado,
+ * que não geram professional_payments. Falta do profissional e falta do
+ * cliente não cobrada não contam.
+ */
+export const isCountedSession = (a: SessionLike): boolean => {
+  const s = norm(a.status).toLowerCase();
+  if (s === "cancelado" || s === "profissional_faltou" || s === "profissional faltou") return false;
+  if (s === "cliente_faltou" || s === "cliente faltou" || s === "faltou") return a.no_show_charged === true;
+  return true;
+};
+
+export const countSessions = (appts: SessionLike[] | null | undefined): number =>
+  (appts ?? []).filter(isCountedSession).length;

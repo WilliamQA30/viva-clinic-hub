@@ -259,7 +259,9 @@ export const exportProfessionalPDF = (data: ProfessionalsPDFData, filename: stri
           formatCurrencyBR(a.professional_amount || 0),
           formatPayment(a.payment_method),
           formatDestination(a.payment_destination),
-          a.payment_status === "pago" ? "Pago" : "Pendente",
+          // Valor 0 = consulta social ou sessão de pacote já quitado: não há
+          // nada a receber, então não pode aparecer como "Pendente".
+          (a.consultation_value || 0) <= 0 ? "Sem cobrança" : a.payment_status === "pago" ? "Pago" : "Pendente",
           a.confirmed_in_finance ? "Sim" : "Não",
         ]);
 
@@ -297,7 +299,8 @@ export const exportProfessionalPDF = (data: ProfessionalsPDFData, filename: stri
             // Coluna Status
             if (hookData.column.index === 8) {
               const v = hookData.cell.raw as string;
-              hookData.cell.styles.textColor = v === "Pago" ? [34, 139, 34] : [200, 120, 0];
+              hookData.cell.styles.textColor =
+                v === "Pago" ? [34, 139, 34] : v === "Sem cobrança" ? [120, 120, 120] : [200, 120, 0];
             }
           }
         },
