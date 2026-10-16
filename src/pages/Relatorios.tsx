@@ -22,6 +22,7 @@ import {
   sumReceivedClinicCommission,
   computeFloor,
   sumDirectFloorEntriesInRange,
+  countSessions,
 } from "@/lib/business-rules";
 
 const reportTypes = [
@@ -253,7 +254,7 @@ export default function Relatorios() {
     // Appointments by professional
     const profData = professionals.map((p) => ({
       name: p.name.split(" ").slice(0, 2).join(" "),
-      consultas: appointments.filter((a) => a.professional_id === p.id).length,
+      consultas: countSessions(appointments.filter((a) => a.professional_id === p.id)),
     })).filter(p => p.consultas > 0).sort((a, b) => b.consultas - a.consultas);
     setAppointmentsByProfessional(profData);
 
@@ -287,7 +288,12 @@ export default function Relatorios() {
         // dinheiro que entrou de fato pra clínica por causa dessa
         // profissional.
         valor: totalClinic + directEntries,
-        professionalReceived, consultas: profPayments.length, totalProduced, floorTotal, gapToFloor, shifts,
+        // Conta pela agenda, não por professional_payments: consulta social
+        // (valor 0) e sessão de pacote já quitado não geram pagamento, e
+        // ficavam de fora da contagem.
+        professionalReceived,
+        consultas: countSessions(appointments.filter((a) => a.professional_id === p.id)),
+        totalProduced, floorTotal, gapToFloor, shifts,
       };
     }).filter(p => p.valor > 0 || p.shifts > 0 || p.professionalReceived > 0).sort((a, b) => b.valor - a.valor);
     setClinicRevenueByProfessional(clinicRevenue);
@@ -658,7 +664,7 @@ export default function Relatorios() {
         const endMonthKey = endStr.slice(0, 7);
         const [profsRes, apptsRes, paymentsRes, floorTxRes] = await Promise.all([
           supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
-          fetchAll(() => supabase.from("appointments").select("id, professional_id, status").gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
+          fetchAll(() => supabase.from("appointments").select("id, professional_id, status, no_show_charged").gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
           fetchAll(() => supabase.from("professional_payments").select("professional_id, clinic_amount, professional_amount, total_value, is_paid, payment_destination, appointments(appointment_date, status)")),
           // Mesmo padrão usado no resto do arquivo: entradas manuais de piso
           // contam via reference_month, com fallback pro mês de
@@ -695,7 +701,7 @@ export default function Relatorios() {
           return [
             p.name,
             p.specialty || "-",
-            String(profAppts.length),
+            String(countSessions(profAppts)),
             formatCurrencyBR(clinicTotal),
             formatCurrencyBR(profTotal),
           ] as (string | number)[];
