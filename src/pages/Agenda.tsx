@@ -400,7 +400,9 @@ export default function Agenda() {
                     {getDisplayName(apt)}
                   </p>
                   {isFree && apt.status !== "cancelado" && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-info/20 text-info" title="Consulta gratuita">Grátis</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-info/20 text-info" title={apt.is_package ? "Sessão de pacote já pago" : "Consulta gratuita"}>
+                      {apt.is_package ? "Pacote" : "Grátis"}
+                    </span>
                   )}
                   {isPending && apt.status !== "cancelado" && (
                     <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/20 text-destructive">$</span>

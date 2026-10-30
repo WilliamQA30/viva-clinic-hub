@@ -13,6 +13,8 @@ export interface ProfessionalAppointmentRow {
   payment_method?: string | null;
   payment_destination?: string | null; // 'clinic' | 'professional'
   payment_status?: string | null; // appointments.payment_status: pendente / pago
+  no_show_uncharged?: boolean; // falta do profissional, ou do cliente sem cobrança
+  is_package?: boolean | null;
   is_paid_to_professional: boolean; // professional_payments.is_paid
   confirmed_in_finance: boolean; // existe transaction de entrada vinculada (clinic) ou saída (professional)
 }
@@ -259,9 +261,13 @@ export const exportProfessionalPDF = (data: ProfessionalsPDFData, filename: stri
           formatCurrencyBR(a.professional_amount || 0),
           formatPayment(a.payment_method),
           formatDestination(a.payment_destination),
-          // Valor 0 = consulta social ou sessão de pacote já quitado: não há
-          // nada a receber, então não pode aparecer como "Pendente".
-          (a.consultation_value || 0) <= 0 ? "Sem cobrança" : a.payment_status === "pago" ? "Pago" : "Pendente",
+          // Falta sem cobrança, consulta social e sessão de pacote já quitado
+          // não têm nada a receber, então não podem aparecer como "Pendente".
+          a.no_show_uncharged
+            ? "Falta"
+            : (a.consultation_value || 0) <= 0
+              ? a.is_package ? "Pacote" : "Sem cobrança"
+              : a.payment_status === "pago" ? "Pago" : "Pendente",
           a.confirmed_in_finance ? "Sim" : "Não",
         ]);
 
@@ -300,7 +306,7 @@ export const exportProfessionalPDF = (data: ProfessionalsPDFData, filename: stri
             if (hookData.column.index === 8) {
               const v = hookData.cell.raw as string;
               hookData.cell.styles.textColor =
-                v === "Pago" ? [34, 139, 34] : v === "Sem cobrança" ? [120, 120, 120] : [200, 120, 0];
+                v === "Pago" ? [34, 139, 34] : v === "Pendente" ? [200, 120, 0] : [120, 120, 120];
             }
           }
         },

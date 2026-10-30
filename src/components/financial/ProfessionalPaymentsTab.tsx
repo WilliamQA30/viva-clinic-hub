@@ -438,6 +438,16 @@ export function ProfessionalPaymentsTab() {
 
       if (error) throw error;
 
+      // Agenda e relatórios leem o valor do agendamento: manter igual ao pagamento
+      if (editingPayment.appointment_id) {
+        const { error: apptError } = await supabase
+          .from("appointments")
+          .update({ consultation_value: numValue, clinic_percentage: pct })
+          .eq("id", editingPayment.appointment_id);
+
+        if (apptError) throw apptError;
+      }
+
       // If payment was already processed, update related transaction
       if (editingPayment.is_paid && editingPayment.appointment_id) {
         const { data: txns } = await supabase
