@@ -17,6 +17,7 @@ import { ReportAuditPanel } from "@/components/reports/ReportAuditPanel";
 import {
   isRealized,
   isCanceled,
+  isNoShow,
   countRealized,
   countCanceled,
   sumReceivedClinicCommission,
@@ -780,7 +781,7 @@ export default function Relatorios() {
         supabase.from("professionals").select("id, name, specialty").eq("is_active", true).order("name"),
         fetchAll(() => supabase
           .from("appointments")
-          .select("id, appointment_date, professional_id, patient_id, consultation_value, clinic_percentage, payment_method, payment_status, status, patients(name)")
+          .select("id, appointment_date, professional_id, patient_id, consultation_value, clinic_percentage, payment_method, payment_status, status, no_show_charged, is_package, patients(name)")
           .gte("appointment_date", startStr).lte("appointment_date", endStr).neq("status", "cancelado")),
         fetchAll(() => supabase
           .from("professional_payments")
@@ -827,7 +828,8 @@ export default function Relatorios() {
 
         const appointmentRows: ProfessionalAppointmentRow[] = profAppts.map((a: any) => {
           const pay = paymentsByAppointment[a.id];
-          const consultationValue = a.consultation_value || 0;
+          const noShowUncharged = !pay && isNoShow(a.status) && a.no_show_charged !== true;
+          const consultationValue = noShowUncharged ? 0 : a.consultation_value || 0;
           const clinicPct = a.clinic_percentage ?? 25;
           const clinicAmount = pay?.clinic_amount ?? (consultationValue * clinicPct / 100);
           const professionalAmount = pay?.professional_amount ?? (consultationValue - clinicAmount);
@@ -847,6 +849,8 @@ export default function Relatorios() {
             payment_method: pay?.payment_method || a.payment_method || null,
             payment_destination: destination,
             payment_status: a.payment_status,
+            no_show_uncharged: noShowUncharged,
+            is_package: a.is_package,
             is_paid_to_professional: !!pay?.is_paid,
             confirmed_in_finance: confirmed,
           };
